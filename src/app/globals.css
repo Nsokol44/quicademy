@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    @apply bg-surface text-ink font-sans antialiased;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  h1, h2, h3, h4, h5 { @apply font-display; }
+
+  ::selection {
+    background: rgba(91,63,168,0.18);
+    color: #0f0a1e;
+  }
+}
+
+@layer components {
+  /* ── Buttons ── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-sans font-semibold
+           rounded transition-all duration-200 focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed select-none;
+  }
+  .btn-sm  { @apply btn text-xs px-4 py-2; }
+  .btn-md  { @apply btn text-sm px-5 py-2.5; }
+  .btn-lg  { @apply btn text-sm px-7 py-3.5; }
+
+  .btn-primary {
+    @apply btn-md bg-violet-700 text-white hover:bg-violet-800 active:bg-violet-900 shadow-violet;
+  }
+  .btn-solar {
+    @apply btn-md bg-solar text-violet-900 hover:bg-solar-500 active:bg-solar-600 shadow-solar font-bold;
+  }
+  .btn-outline {
+    @apply btn-md border-2 border-violet-700 text-violet-700 hover:bg-violet-700 hover:text-white;
+  }
+  .btn-ghost {
+    @apply btn-md text-violet-700 hover:bg-violet-100;
+  }
+  .btn-white {
+    @apply btn-md bg-white text-violet-800 hover:bg-violet-50 shadow-card;
+  }
+
+  /* ── Inputs ── */
+  .field-label {
+    @apply block text-xs font-mono font-medium text-violet-700 uppercase tracking-widest mb-1.5;
+  }
+  .input {
+    @apply w-full px-4 py-3 rounded border border-border bg-white text-ink text-sm
+           font-sans placeholder:text-violet-300
+           focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20
+           transition-all duration-150;
+  }
+  .input-error { @apply border-red-400 focus:border-red-500 focus:ring-red-500/20; }
+
+  /* ── Cards ── */
+  .card       { @apply bg-white rounded-lg border border-border shadow-card; }
+  .card-hover { @apply card hover:shadow-card-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer; }
+
+  /* ── Badges ── */
+  .badge        { @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-mono font-medium; }
+  .badge-violet { @apply badge bg-violet-100 text-violet-700; }
+  .badge-solar  { @apply badge bg-solar-100 text-solar-700; }
+  .badge-green  { @apply badge bg-green-100 text-green-700; }
+
+  /* ── Section label ── */
+  .eyebrow {
+    @apply inline-flex items-center gap-2 font-mono text-xs font-medium text-violet-500 uppercase tracking-widest;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c4aee8; border-radius: 99px; }
+
+/* Fade-up animation delays */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.au   { animation: fadeUp 0.5s ease both; }
+.au-1 { animation: fadeUp 0.5s 0.08s ease both; }
+.au-2 { animation: fadeUp 0.5s 0.16s ease both; }
+.au-3 { animation: fadeUp 0.5s 0.24s ease both; }
+.au-4 { animation: fadeUp 0.5s 0.32s ease both; }
+.au-5 { animation: fadeUp 0.5s 0.40s ease both; }
+.au-6 { animation: fadeUp 0.5s 0.48s ease both; }
