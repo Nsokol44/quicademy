@@ -1,4 +1,4 @@
-// File: /Users/nicholassokol/Downloads/quicademy/src/app/layout.js
+// File: /Users/nicholassokol/Downloads/wizemode_dev/quicademy/src/app/layout.js
 import * as entry from '../../../src/app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

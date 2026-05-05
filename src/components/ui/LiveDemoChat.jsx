@@ -37,9 +37,9 @@ const CONVERSATION = [
 ]
 
 // ms between each message appearing
-const MESSAGE_GAPS = [800, 2000, 2500, 2000, 2000, 2500]
+const MESSAGE_GAPS = [800, 1400, 1600, 900, 1400, 1600]
 const TYPING_DURATION = 900  // how long typing dots show before message appears
-const LOOP_PAUSE = 19000      // pause at end before restarting
+const LOOP_PAUSE = 3500      // pause at end before restarting
 
 export default function LiveDemoChat() {
   const [visibleMessages, setVisibleMessages] = useState([])

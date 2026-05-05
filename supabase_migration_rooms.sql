@@ -1,10 +1,9 @@
 -- ============================================================
--- QUICADEMY — Safe Migration: Drop & Recreate Room Policies
--- Run this INSTEAD of supabase_migration_rooms.sql if you
--- get "policy already exists" errors
+-- QUICADEMY — Migration: Group + 1-on-1 Room Support
+-- Run this in your Supabase SQL editor AFTER the base schema
 -- ============================================================
 
--- Add columns to live_rooms (safe - IF NOT EXISTS)
+-- Add room type and private student link to live_rooms
 ALTER TABLE public.live_rooms
   ADD COLUMN IF NOT EXISTS room_type TEXT NOT NULL DEFAULT 'group'
     CHECK (room_type IN ('group', 'private')),
@@ -12,21 +11,19 @@ ALTER TABLE public.live_rooms
   ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'ended', 'pending'));
 
+-- Add index for fast student private room lookups
 CREATE INDEX IF NOT EXISTS idx_live_rooms_student ON public.live_rooms(student_id);
 CREATE INDEX IF NOT EXISTS idx_live_rooms_type    ON public.live_rooms(room_type);
 
--- ── Drop ALL existing room policies (safe to re-run) ──────
-DROP POLICY IF EXISTS "Room messages viewable by authenticated users"        ON public.room_messages;
-DROP POLICY IF EXISTS "Authenticated users can send messages"                ON public.room_messages;
-DROP POLICY IF EXISTS "Group room messages are public to authenticated"      ON public.room_messages;
-DROP POLICY IF EXISTS "Private room messages only for participants"          ON public.room_messages;
-DROP POLICY IF EXISTS "Participants can send messages"                       ON public.room_messages;
-DROP POLICY IF EXISTS "AI can insert messages"                               ON public.room_messages;
-DROP POLICY IF EXISTS "Users can view relevant rooms"                        ON public.live_rooms;
-DROP POLICY IF EXISTS "Instructors can manage their rooms"                   ON public.live_rooms;
-DROP POLICY IF EXISTS "Students can request private rooms"                   ON public.live_rooms;
+-- ── DROP old permissive policies ──────────────────────────────
+DROP POLICY IF EXISTS "Room messages viewable by authenticated users" ON public.room_messages;
+DROP POLICY IF EXISTS "Authenticated users can send messages"         ON public.room_messages;
 
--- ── Recreate live_rooms policies ─────────────────────────
+-- ── NEW: live_rooms RLS ───────────────────────────────────────
+-- Students can see group rooms for any active course
+-- Students can see their own private rooms only
+-- Instructors can see all rooms they own
+DROP POLICY IF EXISTS "Users can view relevant rooms" ON public.live_rooms;
 CREATE POLICY "Users can view relevant rooms"
   ON public.live_rooms FOR SELECT TO authenticated
   USING (
@@ -35,10 +32,13 @@ CREATE POLICY "Users can view relevant rooms"
     OR student_id    = auth.uid()
   );
 
+DROP POLICY IF EXISTS "Instructors can manage their rooms" ON public.live_rooms;
 CREATE POLICY "Instructors can manage their rooms"
   ON public.live_rooms FOR ALL TO authenticated
   USING (instructor_id = auth.uid());
 
+-- Students can insert a private room request (status = 'pending')
+DROP POLICY IF EXISTS "Students can request private rooms" ON public.live_rooms;
 CREATE POLICY "Students can request private rooms"
   ON public.live_rooms FOR INSERT TO authenticated
   WITH CHECK (
@@ -47,7 +47,9 @@ CREATE POLICY "Students can request private rooms"
     AND status     = 'pending'
   );
 
--- ── Recreate room_messages policies ──────────────────────
+-- ── NEW: room_messages RLS ────────────────────────────────────
+-- Group room messages: any authenticated user can read
+-- Private room messages: only the student, instructor, or AI sender
 CREATE POLICY "Group room messages are public to authenticated"
   ON public.room_messages FOR SELECT TO authenticated
   USING (
@@ -83,10 +85,7 @@ CREATE POLICY "Participants can send messages"
     )
   );
 
+-- Allow AI inserts (sender_id is null for AI messages)
 CREATE POLICY "AI can insert messages"
   ON public.room_messages FOR INSERT
   WITH CHECK (sender_id IS NULL AND is_ai = true);
-
--- ── Enable realtime (safe to re-run) ─────────────────────
-ALTER PUBLICATION supabase_realtime ADD TABLE public.room_messages;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.live_rooms;

@@ -3,11 +3,13 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/components/auth/AuthProvider'
-import { BookOpen, Menu, X, ChevronDown, LayoutDashboard, LogOut, Settings, GraduationCap } from 'lucide-react'
+import { BookOpen, Menu, X, ChevronDown, LayoutDashboard, LogOut, Settings, GraduationCap, Shield, Users } from 'lucide-react'
+import NotificationBell from '@/components/ui/NotificationBell'
 import clsx from 'clsx'
 
 const NAV = [
-  { href: '/courses',      label: 'Courses' },
+  { href: '/courses', label: 'Courses' },
+  { href: '/classes', label: 'Classes' },
   { href: '/how-it-works', label: 'How It Works' },
   { href: '/for-business', label: 'For Business' },
 ]
@@ -61,31 +63,40 @@ export default function Navbar() {
 
         <div className="hidden md:flex items-center gap-3">
           {user ? (
-            <div className="relative" ref={ddRef}>
-              <button onClick={() => setDd(!ddOpen)}
-                className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full border border-border hover:border-violet-300 hover:bg-violet-50 transition-all">
-                <div className="w-7 h-7 rounded-full bg-violet-700 flex items-center justify-center text-white text-xs font-bold">{initial}</div>
-                <span className="text-sm font-medium text-violet-800">{profile?.full_name?.split(' ')[0] || 'Account'}</span>
-                <ChevronDown size={13} className={clsx('text-violet-400 transition-transform', ddOpen && 'rotate-180')} />
-              </button>
-              {ddOpen && (
-                <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl border border-border shadow-card-lg py-2 z-50">
-                  <div className="px-4 py-2.5 border-b border-border mb-1">
-                    <p className="text-xs font-mono text-muted truncate">{user.email}</p>
-                    <p className="text-xs font-mono text-violet-500 capitalize mt-0.5">{profile?.role || 'student'}</p>
+            <>
+              <NotificationBell userId={user?.id} />
+              <div className="relative" ref={ddRef}>
+                <button onClick={() => setDd(!ddOpen)}
+                  className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full border border-border hover:border-violet-300 hover:bg-violet-50 transition-all">
+                  <div className="w-7 h-7 rounded-full bg-violet-700 flex items-center justify-center text-white text-xs font-bold">{initial}</div>
+                  <span className="text-sm font-medium text-violet-800">{profile?.full_name?.split(' ')[0] || 'Account'}</span>
+                  <ChevronDown size={13} className={clsx('text-violet-400 transition-transform', ddOpen && 'rotate-180')} />
+                </button>
+                {ddOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl border border-border shadow-card-lg py-2 z-50">
+                    <div className="px-4 py-2.5 border-b border-border mb-1">
+                      <p className="text-xs font-mono text-muted truncate">{user.email}</p>
+                      <p className="text-xs font-mono text-violet-500 capitalize mt-0.5">{profile?.role || 'student'}</p>
+                    </div>
+                    <MenuLink href="/dashboard" icon={LayoutDashboard} label="Dashboard" onClick={() => setDd(false)} />
+                    {profile?.role === 'instructor' && (
+                      <MenuLink href="/instructor" icon={GraduationCap} label="Instructor Portal" onClick={() => setDd(false)} />
+                    )}
+                    {profile?.role === 'admin' && (
+                      <MenuLink href="/admin" icon={Shield} label="Admin Panel" onClick={() => setDd(false)} />
+                    )}
+                    <MenuLink href="/classes" icon={Users} label="My Classes" onClick={() => setDd(false)} />
+                    <MenuLink href="/settings" icon={Settings} label="Settings" onClick={() => setDd(false)} />
+                    <div className="border-t border-border mt-1 pt-1">
+                      <button onClick={async () => { await signOut(); router.push('/'); setDd(false) }}
+                        className="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors">
+                        <LogOut size={14} />Sign out
+                      </button>
+                    </div>
                   </div>
-                  <MenuLink href="/dashboard" icon={LayoutDashboard} label="Dashboard" onClick={() => setDd(false)} />
-                  {profile?.role === 'instructor' && (
-                    <MenuLink href="/instructor" icon={GraduationCap} label="Instructor Portal" onClick={() => setDd(false)} />
-                  )}
-                  <MenuLink href="/settings" icon={Settings} label="Settings" onClick={() => setDd(false)} />
-                  <div className="border-t border-border mt-1 pt-1">
-                    <button onClick={async () => { await signOut(); router.push('/'); setDd(false) }}
-                      className="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors">
-                      <LogOut size={14} />Sign out
-                    </button>
-                  </div>
-                </div>
+                )}
+              </div>
+            
               )}
             </div>
           ) : (
