@@ -139,7 +139,25 @@ function OverviewTab({ profile, courses, groupRooms, privateRooms, setTab, onCre
         <div>
           <h2 className="font-display text-xl font-semibold text-violet-900 mb-4">Recent Courses</h2>
           <div className="space-y-3">
-            {courses.slice(0, 3).map(c => <CourseRow key={c.id} course={c} compact />)}
+            {courses.slice(0, 3).map(c => (
+              <a key={c.id} href={`/instructor/courses/${c.id}`} className="card p-5 flex items-center gap-4 hover:shadow-card-lg hover:-translate-y-0.5 transition-all cursor-pointer">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-700 to-violet-900 flex items-center justify-center flex-shrink-0">
+                  <span className="font-display font-bold text-white/40">{c.category?.[0]}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-sans font-semibold text-sm text-violet-900 truncate">{c.title}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="font-mono text-xs text-muted">{c.category}</span>
+                    <span className={clsx('badge text-xs', c.published && c.approved ? 'badge-green' : c.published ? 'badge-solar' : 'badge-violet')}>
+                      {c.approved && c.published ? 'Live' : c.published ? 'Under Review' : 'Draft'}
+                    </span>
+                  </div>
+                </div>
+                <span className="font-mono text-xs text-violet-400 flex-shrink-0 flex items-center gap-1">
+                  <Edit3 size={11}/> Edit
+                </span>
+              </a>
+            ))}
           </div>
         </div>
       )}
@@ -198,6 +216,18 @@ function CoursesTab({ courses, profile, showForm, setShowForm }) {
 }
 
 function CourseRow({ course: c, compact }) {
+  const supabase = createClient()
+  const [deleting, setDeleting] = useState(false)
+
+  const handleDelete = async () => {
+    if (!confirm(`Delete "${c.title}"? This will also delete all its modules and cannot be undone.`)) return
+    setDeleting(true)
+    const { error } = await supabase.from('courses').delete().eq('id', c.id)
+    if (error) { toast.error(error.message); setDeleting(false); return }
+    toast.success('Course deleted')
+    window.location.reload()
+  }
+
   return (
     <div className="card p-5 flex items-center gap-5">
       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-700 to-violet-900 flex items-center justify-center flex-shrink-0">
@@ -208,14 +238,25 @@ function CourseRow({ course: c, compact }) {
         <div className="flex items-center gap-3 mt-1">
           <span className="font-mono text-xs text-muted">{c.category}</span>
           <span className={clsx('badge text-xs', c.published && c.approved ? 'badge-green' : c.published ? 'badge-solar' : 'badge-violet')}>
-            {c.approved && c.published ? 'Live' : c.published ? 'Pending Review' : 'Draft'}
+            {c.approved && c.published ? 'Live' : c.published ? 'Under Review' : 'Draft'}
           </span>
+          {c.duration_hours && (
+            <span className="font-mono text-xs text-muted">{c.duration_hours}h</span>
+          )}
         </div>
       </div>
       {!compact && (
         <div className="flex items-center gap-2 flex-shrink-0">
-          <button className="btn-ghost btn-sm"><Edit3 size={14} /></button>
-          <button className="btn-ghost btn-sm text-red-400 hover:bg-red-50"><Trash2 size={14} /></button>
+          <a href={`/instructor/courses/${c.id}`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-100 text-violet-700 text-xs font-semibold font-sans hover:bg-violet-200 transition-colors">
+            <Edit3 size={12}/> Edit & Add Content
+          </a>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="p-1.5 rounded hover:bg-red-50 text-violet-200 hover:text-red-500 transition-colors disabled:opacity-40">
+            <Trash2 size={14}/>
+          </button>
         </div>
       )}
     </div>
