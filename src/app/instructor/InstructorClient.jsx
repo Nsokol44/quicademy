@@ -13,10 +13,16 @@ import clsx from 'clsx'
 const TABS = ['Overview', 'My Courses', 'Group Rooms', 'Private Sessions', 'Profile']
 
 export default function InstructorClient({ profile, courses, groupRooms, privateRooms }) {
-  const [tab, setTab] = useState('Overview')
+  const [tab, setTab]           = useState('Overview')
+  const [showCourseForm, setShowCourseForm] = useState(false)
+  const [showRoomForm, setShowRoomForm]     = useState(false)
   const name = profile?.full_name?.split(' ')[0] || 'Instructor'
 
   const pendingCount = privateRooms.filter(r => r.status === 'pending').length
+
+  // Called from Overview quick actions
+  const openCreateCourse = () => { setShowCourseForm(true); setTab('My Courses') }
+  const openCreateRoom   = () => { setShowRoomForm(true);   setTab('Group Rooms') }
 
   return (
     <div className="min-h-screen bg-violet-50">
@@ -65,9 +71,9 @@ export default function InstructorClient({ profile, courses, groupRooms, private
       </div>
 
       <div className="max-w-7xl mx-auto px-5 py-10">
-        {tab === 'Overview'         && <OverviewTab profile={profile} courses={courses} groupRooms={groupRooms} privateRooms={privateRooms} setTab={setTab} />}
-        {tab === 'My Courses'       && <CoursesTab courses={courses} profile={profile} />}
-        {tab === 'Group Rooms'      && <GroupRoomsTab rooms={groupRooms} courses={courses} profile={profile} />}
+        {tab === 'Overview'         && <OverviewTab profile={profile} courses={courses} groupRooms={groupRooms} privateRooms={privateRooms} setTab={setTab} onCreateCourse={openCreateCourse} onCreateRoom={openCreateRoom} />}
+        {tab === 'My Courses'       && <CoursesTab courses={courses} profile={profile} showForm={showCourseForm} setShowForm={setShowCourseForm} />}
+        {tab === 'Group Rooms'      && <GroupRoomsTab rooms={groupRooms} courses={courses} profile={profile} showCreate={showRoomForm} setShowCreate={setShowRoomForm} />}
         {tab === 'Private Sessions' && <PrivateSessionsTab rooms={privateRooms} profile={profile} />}
         {tab === 'Profile'          && <ProfileTab profile={profile} />}
       </div>
@@ -76,7 +82,7 @@ export default function InstructorClient({ profile, courses, groupRooms, private
 }
 
 /* ─── OVERVIEW ─── */
-function OverviewTab({ profile, courses, groupRooms, privateRooms, setTab }) {
+function OverviewTab({ profile, courses, groupRooms, privateRooms, setTab, onCreateCourse, onCreateRoom }) {
   const published   = courses.filter(c => c.published).length
   const activeGroup = groupRooms.filter(r => r.is_active).length
   const pending1on1 = privateRooms.filter(r => r.status === 'pending').length
@@ -123,9 +129,9 @@ function OverviewTab({ profile, courses, groupRooms, privateRooms, setTab }) {
       <div>
         <h2 className="font-display text-xl font-semibold text-violet-900 mb-4">Quick Actions</h2>
         <div className="grid md:grid-cols-3 gap-4">
-          <QuickAction icon={Plus}    title="Create New Course"   desc="Build a new module for your students"   onClick={() => {}} solar />
-          <QuickAction icon={Upload}  title="Import from CourseForge" desc="Upload a .zip export to create a course" href="/instructor/import" />
-          <QuickAction icon={BarChart2} title="View Analytics"     desc="Engagement and completion data"         href="/instructor/analytics" />
+          <QuickAction icon={Plus}      title="Create New Course"       desc="Build a new course for your students"         onClick={onCreateCourse} solar />
+          <QuickAction icon={Upload}    title="Import from CourseForge" desc="Upload a .zip export to create a course"       href="/instructor/import" />
+          <QuickAction icon={BarChart2} title="View Analytics"          desc="Engagement and completion data"                href="/instructor/analytics" />
         </div>
       </div>
 
@@ -165,8 +171,7 @@ function QuickAction({ icon: Icon, title, desc, href, onClick, solar }) {
 }
 
 /* ─── COURSES TAB ─── */
-function CoursesTab({ courses, profile }) {
-  const [showForm, setShowForm] = useState(false)
+function CoursesTab({ courses, profile, showForm, setShowForm }) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -174,7 +179,7 @@ function CoursesTab({ courses, profile }) {
           <h2 className="font-display text-2xl font-bold text-violet-900">My Courses</h2>
           <p className="font-sans text-sm text-muted mt-1">{courses.length} course{courses.length !== 1 ? 's' : ''} created</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="btn-solar"><Plus size={16} /> New Course</button>
+        <button onClick={() => setShowForm(true)} className="btn-solar"><Plus size={16} /> New Course</button>
       </div>
       {showForm && <CreateCourseForm profileId={profile.id} onClose={() => setShowForm(false)} />}
       {courses.length > 0
@@ -220,7 +225,7 @@ function CourseRow({ course: c, compact }) {
 function CreateCourseForm({ profileId, onClose }) {
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
-  const [form, setForm] = useState({ title:'', short_desc:'', description:'', category:'Electrical', level:'beginner', duration_hours:'', price:'0', is_free:true })
+  const [form, setForm] = useState({ title:'', short_desc:'', description:'', category: CATEGORIES[0], level:'beginner', duration_hours:'', price:'0', is_free:true })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const handleCreate = async (e) => {
@@ -258,9 +263,9 @@ function CreateCourseForm({ profileId, onClose }) {
           <div>
             <label className="field-label">Level</label>
             <select className="input" value={form.level} onChange={e => set('level', e.target.value)}>
-              <option value="beginner">Apprentice (Beginner)</option>
-              <option value="intermediate">Journeyman (Intermediate)</option>
-              <option value="advanced">Master (Advanced)</option>
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="advanced">Advanced</option>
             </select>
           </div>
           <div className="md:col-span-2">
@@ -298,8 +303,7 @@ function CreateCourseForm({ profileId, onClose }) {
 }
 
 /* ─── GROUP ROOMS TAB ─── */
-function GroupRoomsTab({ rooms, courses, profile }) {
-  const [showCreate, setShowCreate] = useState(false)
+function GroupRoomsTab({ rooms, courses, profile, showCreate, setShowCreate }) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
