@@ -307,14 +307,21 @@ export default function CourseEditorClient({ course: initialCourse, initialSecti
               ))}
 
               {ungrouped.length > 0 && (
-                <div className="card p-5 border-2 border-dashed border-violet-200">
-                  <p className="font-mono text-xs text-muted uppercase tracking-wider mb-3">Ungrouped modules</p>
-                  <div className="space-y-2">
+                <div className="card overflow-hidden border-2 border-dashed border-violet-200">
+                  <div className="bg-violet-50 px-5 py-3 flex items-center justify-between border-b border-violet-200">
+                    <p className="font-mono text-xs text-muted uppercase tracking-wider">Ungrouped modules</p>
+                    <p className="font-sans text-xs text-muted">{ungrouped.length} item{ungrouped.length !== 1 ? 's' : ''} — assign to a section using the edit button on each module</p>
+                  </div>
+                  <div className="divide-y divide-border/60">
                     {ungrouped.map((mod, i) => (
                       <ModuleRow key={mod.id} mod={mod} index={i} total={ungrouped.length}
                         onUpdate={(u) => updateModule(mod.id, u)}
                         onDelete={() => deleteModule(mod.id, mod.title)}
                         onMove={(d) => moveModule(mod.id, null, d)}
+                        onAssignSection={async (sectionId) => {
+                          await updateModule(mod.id, { section_id: sectionId })
+                        }}
+                        sections={sections}
                         profileId={course.instructor_id}
                       />
                     ))}
@@ -481,7 +488,7 @@ function SectionBlock({ section, index, total, modules, expanded, onToggle, onUp
   )
 }
 
-function ModuleRow({ mod, index, total, onUpdate, onDelete, onMove, profileId }) {
+function ModuleRow({ mod, index, total, onUpdate, onDelete, onMove, onAssignSection, sections, profileId }) {
   const [expanded, setExpanded] = useState(false)
   const [editing,  setEditing]  = useState(false)
   const [saving,   setSaving]   = useState(false)
@@ -545,6 +552,16 @@ function ModuleRow({ mod, index, total, onUpdate, onDelete, onMove, profileId })
                 </div>
                 <div><label className="field-label">Duration (mins)</label><input type="number" className="input" value={form.duration_mins} onChange={e => set('duration_mins',e.target.value)}/></div>
                 <div className="md:col-span-2"><label className="field-label">Description</label><input className="input" value={form.description} onChange={e => set('description',e.target.value)}/></div>
+                {onAssignSection && sections?.length > 0 && (
+                  <div className="md:col-span-2">
+                    <label className="field-label">Move to section</label>
+                    <select className="input" defaultValue=""
+                      onChange={e => { if (e.target.value) onAssignSection(e.target.value) }}>
+                      <option value="">— keep ungrouped —</option>
+                      {sections.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
               <ContentFields form={form} set={set} profileId={profileId}/>
               <div className="flex gap-3">
@@ -557,19 +574,39 @@ function ModuleRow({ mod, index, total, onUpdate, onDelete, onMove, profileId })
           ) : (
             <div className="space-y-3">
               {mod.description && <p className="font-sans text-sm text-muted">{mod.description}</p>}
-              {mod.content_url && (
+
+              {/* Video embed */}
+              {mod.content_url && mod.content_type === 'video' && (
+                <VideoEmbed url={mod.content_url} />
+              )}
+
+              {/* Non-video file/URL */}
+              {mod.content_url && mod.content_type !== 'video' && (
                 <a href={mod.content_url} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 p-2.5 bg-white rounded-lg border border-border text-violet-600 hover:text-violet-800 text-xs font-mono">
-                  <LinkIcon size={11}/><span className="truncate">{mod.content_url}</span>
+                  <LinkIcon size={11}/><span className="truncate">{mod.content_url.split('/').pop()?.split('?')[0] || mod.content_url}</span>
                 </a>
               )}
+
+              {/* Image detection */}
+              {mod.content_url && /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(mod.content_url) && (
+                <img src={mod.content_url} alt={mod.title} className="rounded-lg max-h-64 object-contain border border-border" />
+              )}
+
+              {/* Content body — HTML or plain text */}
               {mod.content_body && (
-                <div className="p-3 bg-white rounded-lg border border-border max-h-40 overflow-y-auto">
-                  <pre className="font-sans text-xs text-violet-800 leading-relaxed whitespace-pre-wrap">
-                    {mod.content_body.replace(/<[^>]+>/g,'').slice(0,500)}{mod.content_body.length>500&&'…'}
-                  </pre>
+                <div className="p-4 bg-white rounded-lg border border-border max-h-64 overflow-y-auto">
+                  {mod.content_body.trim().startsWith('<') ? (
+                    <div className="font-sans text-xs text-violet-800 leading-relaxed [&_h1]:font-bold [&_h2]:font-bold [&_h2]:mt-3 [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-4 [&_li]:mb-1"
+                      dangerouslySetInnerHTML={{ __html: mod.content_body }} />
+                  ) : (
+                    <pre className="font-sans text-xs text-violet-800 leading-relaxed whitespace-pre-wrap">
+                      {mod.content_body.slice(0, 800)}{mod.content_body.length > 800 && '…'}
+                    </pre>
+                  )}
                 </div>
               )}
+
               {!mod.content_url && !mod.content_body && (
                 <p className="font-sans text-xs text-muted flex items-center gap-1.5"><AlertCircle size={11}/> No content yet — click Edit to add</p>
               )}
@@ -579,6 +616,42 @@ function ModuleRow({ mod, index, total, onUpdate, onDelete, onMove, profileId })
         </div>
       )}
     </div>
+  )
+}
+
+// Smart video embed — handles YouTube, Vimeo, Loom, and direct video files
+function VideoEmbed({ url }) {
+  const getEmbedUrl = (url) => {
+    // YouTube
+    const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/)
+    if (yt) return `https://www.youtube.com/embed/${yt[1]}`
+    // Vimeo
+    const vi = url.match(/vimeo\.com\/(\d+)/)
+    if (vi) return `https://player.vimeo.com/video/${vi[1]}`
+    // Loom
+    const lo = url.match(/loom\.com\/share\/([\w-]+)/)
+    if (lo) return `https://www.loom.com/embed/${lo[1]}`
+    return null
+  }
+  const embedUrl = getEmbedUrl(url)
+  const isDirectVideo = /\.(mp4|webm|mov|ogg)(\?|$)/i.test(url)
+
+  if (embedUrl) return (
+    <div className="relative rounded-lg overflow-hidden bg-black" style={{ paddingTop: '56.25%' }}>
+      <iframe src={embedUrl} className="absolute inset-0 w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+    </div>
+  )
+  if (isDirectVideo) return (
+    <video controls className="w-full rounded-lg border border-border">
+      <source src={url} />Your browser does not support video.
+    </video>
+  )
+  // Fallback link
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+      className="flex items-center gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-xs font-mono hover:text-blue-900">
+      <Video size={12}/> <span className="truncate">{url}</span>
+    </a>
   )
 }
 

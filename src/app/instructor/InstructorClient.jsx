@@ -452,6 +452,24 @@ function PrivateSessionsTab({ rooms, profile }) {
         .update({ status: 'active', is_active: true })
         .eq('id', room.id)
       if (error) throw error
+
+      // Notify student via in-app + email
+      const { data: studentProfile } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', room.student?.id || room.student_id)
+        .single()
+
+      await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'private_accepted',
+          roomId: room.id,
+          studentEmail: studentProfile?.email,
+        }),
+      })
+
       toast.success(`Session with ${room.student?.full_name} is now open!`)
       window.location.href = `/live-room/${room.id}`
     } catch (err) {
