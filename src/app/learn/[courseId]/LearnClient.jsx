@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase-browser'
 import {
   CheckCircle, Circle, ChevronDown, ChevronUp, ArrowLeft,
   Video, FileText, Zap, HelpCircle, Globe, Upload, Send,
-  MessageCircle, Lock, BookOpen, Award, X, File, Check
+  MessageCircle, Lock, BookOpen, Award, X, File, Check, Users
 } from 'lucide-react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
@@ -14,7 +14,7 @@ const TYPE_ICON  = { text: FileText, video: Video, interactive: Zap, quiz: HelpC
 const TYPE_LABEL = { text:'Lesson', video:'Video', interactive:'Assignment', quiz:'Quiz', scenario:'Case Study' }
 const TYPE_COLOR = { text:'bg-violet-100 text-violet-600', video:'bg-blue-100 text-blue-600', interactive:'bg-solar-100 text-solar-700', quiz:'bg-green-100 text-green-700', scenario:'bg-pink-100 text-pink-700' }
 
-export default function LearnClient({ course, enrollment, sections, modules, initialProgress, initialSubmissions, profile }) {
+export default function LearnClient({ course, enrollment, sections, modules, initialProgress, initialSubmissions, profile, activeRoom }) {
   const supabase = createClient()
   const [progress,    setProgress]    = useState(Object.fromEntries(initialProgress.map(p => [p.module_id, p])))
   const [submissions, setSubmissions] = useState(Object.fromEntries(initialSubmissions.map(s => [s.module_id, s])))
@@ -83,6 +83,24 @@ export default function LearnClient({ course, enrollment, sections, modules, ini
             </div>
             <span className="font-mono text-xs text-violet-600 font-semibold flex-shrink-0">{pct}% complete</span>
           </div>
+
+          {/* Live group chat button — shown when instructor has opened a session */}
+          {activeRoom ? (
+            <Link href={`/classroom/${activeRoom.id}`}
+              className="flex items-center gap-3 px-4 py-3.5 bg-red-600 hover:bg-red-700 rounded-xl text-white transition-colors shadow-md">
+              <div className="w-2 h-2 rounded-full bg-white animate-pulse flex-shrink-0"/>
+              <div className="flex-1 min-w-0">
+                <p className="font-sans text-sm font-bold">Live class is open</p>
+                <p className="font-mono text-xs text-red-200 mt-0.5">Join the group chat now</p>
+              </div>
+              <Users size={16} className="text-red-200 flex-shrink-0"/>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-3 px-4 py-3 bg-violet-100 rounded-xl text-violet-500">
+              <MessageCircle size={14} className="flex-shrink-0"/>
+              <p className="font-sans text-xs text-violet-500">Group chat opens when your instructor starts a live session</p>
+            </div>
+          )}
 
           {sections.map(section => (
             <div key={section.id} className="card overflow-hidden">

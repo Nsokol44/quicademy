@@ -20,6 +20,7 @@ export default async function LearnPage({ params }) {
     { data: modules },
     { data: progress },
     { data: submissions },
+    { data: activeRoom },
   ] = await Promise.all([
     supabase.from('enrollments').select('*').eq('student_id', user.id).eq('course_id', params.courseId).single(),
     supabase.from('courses').select('*, instructor:instructor_id(id, full_name, email)').eq('id', params.courseId).single(),
@@ -27,6 +28,13 @@ export default async function LearnPage({ params }) {
     supabase.from('modules').select('*').eq('course_id', params.courseId).order('sort_order'),
     supabase.from('module_progress').select('*').eq('student_id', user.id),
     supabase.from('submissions').select('*').eq('student_id', user.id).eq('course_id', params.courseId),
+    // Active group room for this course
+    supabase.from('live_rooms')
+      .select('id, title')
+      .eq('course_id', params.courseId)
+      .eq('room_type', 'group')
+      .eq('is_active', true)
+      .maybeSingle(),
   ])
 
   if (!enrollment) redirect(`/courses/${params.courseId}`)
@@ -43,6 +51,7 @@ export default async function LearnPage({ params }) {
       initialProgress={progress || []}
       initialSubmissions={submissions || []}
       profile={profile}
+      activeRoom={activeRoom || null}
     />
   )
 }

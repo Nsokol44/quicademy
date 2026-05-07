@@ -372,7 +372,7 @@ function GroupRoomsTab({ rooms, courses, profile, showCreate, setShowCreate }) {
                 <p className="font-mono text-xs text-muted">{room.courses?.title}</p>
               </div>
               {room.is_active && (
-                <a href={`/live-room/${room.id}`} className="btn-primary btn-sm flex-shrink-0">Enter Room</a>
+                <a href={`/classroom/${room.id}`} className="btn-primary btn-sm flex-shrink-0">Enter Room</a>
               )}
             </div>
           ))}

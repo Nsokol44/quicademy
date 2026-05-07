@@ -14,6 +14,10 @@ export default function DashboardClient({ profile, enrollments, suggestedCourses
   const completedCount  = enrollments.filter(e => e.progress === 100).length
   const inProgressCount = enrollments.filter(e => e.progress > 0 && e.progress < 100).length
 
+  // Build a map of courseId -> active group room for quick lookup
+  const courseRoomMap = {}
+  groupRooms.forEach(r => { if (r.course_id) courseRoomMap[r.course_id] = r })
+
   return (
     <div className="min-h-screen bg-violet-50">
       <div className="max-w-7xl mx-auto px-5 py-10 space-y-10">
@@ -137,7 +141,13 @@ export default function DashboardClient({ profile, enrollments, suggestedCourses
           {enrollments.length > 0 ? (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
               {enrollments.map(({ courses: c, progress }) => (
-                <CourseCard key={c.id} course={c} progress={progress} enrolled={true} />
+                <CourseCard
+                  key={c.id}
+                  course={c}
+                  progress={progress}
+                  enrolled={true}
+                  activeRoom={courseRoomMap[c.id] || null}
+                />
               ))}
             </div>
           ) : (
@@ -146,7 +156,7 @@ export default function DashboardClient({ profile, enrollments, suggestedCourses
                 <BookOpen size={24} className="text-violet-500" />
               </div>
               <h3 className="font-display text-lg font-semibold text-violet-900 mb-2">No courses yet</h3>
-              <p className="font-sans text-sm text-muted mb-5">Browse our trade courses and enroll in something that matches your goals.</p>
+              <p className="font-sans text-sm text-muted mb-5">Browse our courses and enroll in something that matches your goals.</p>
               <Link href="/courses" className="btn-primary mx-auto">Browse courses <ArrowRight size={14} /></Link>
             </div>
           )}
@@ -292,37 +302,57 @@ function RequestPrivateSession({ profile, instructors }) {
 }
 
 /* ── Course card ── */
-function CourseCard({ course: c, progress, enrolled }) {
+function CourseCard({ course: c, progress, enrolled, activeRoom }) {
   const href = enrolled ? `/learn/${c.id}` : `/courses/${c.id}`
   return (
-    <Link href={href} className="card hover:shadow-card-lg hover:-translate-y-0.5 transition-all flex flex-col">
-      <div className="h-36 bg-gradient-to-br from-violet-700 to-violet-900 rounded-t-lg flex items-center justify-center relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10"
-          style={{ backgroundImage: 'repeating-linear-gradient(45deg,#fff 0,#fff 1px,transparent 1px,transparent 12px)' }} />
-        <span className="font-display text-4xl font-bold text-white/20 select-none uppercase tracking-tight">
-          {c.category?.[0] || '?'}
-        </span>
-        <div className="absolute top-3 left-3">
-          <span className={c.is_free ? 'badge-solar' : 'badge-violet'}>{c.is_free ? 'Free' : c.level}</span>
-        </div>
-      </div>
-      <div className="p-5 flex flex-col flex-1">
-        <p className="font-mono text-xs text-violet-400 mb-1">{c.category}</p>
-        <h3 className="font-display text-base font-semibold text-violet-900 mb-2 leading-snug">{c.title}</h3>
-        {c.short_desc && <p className="font-sans text-xs text-muted leading-relaxed flex-1">{c.short_desc}</p>}
-        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border">
-          <Clock size={12} className="text-muted" />
-          <span className="font-mono text-xs text-muted">{c.duration_hours}h</span>
-          {typeof progress === 'number' && (
-            <div className="ml-auto flex items-center gap-2 flex-1">
-              <div className="flex-1 h-1.5 bg-violet-100 rounded-full overflow-hidden">
-                <div className="h-full bg-violet-600 rounded-full transition-all" style={{ width: `${progress}%` }} />
-              </div>
-              <span className="font-mono text-xs text-violet-600">{progress}%</span>
+    <div className="card hover:shadow-card-lg hover:-translate-y-0.5 transition-all flex flex-col">
+      <Link href={href} className="flex flex-col flex-1">
+        <div className="h-36 bg-gradient-to-br from-violet-700 to-violet-900 rounded-t-lg flex items-center justify-center relative overflow-hidden">
+          <div className="absolute inset-0 opacity-10"
+            style={{ backgroundImage: 'repeating-linear-gradient(45deg,#fff 0,#fff 1px,transparent 1px,transparent 12px)' }} />
+          <span className="font-display text-4xl font-bold text-white/20 select-none uppercase tracking-tight">
+            {c.category?.[0] || '?'}
+          </span>
+          <div className="absolute top-3 left-3">
+            <span className={c.is_free ? 'badge-solar' : 'badge-violet'}>{c.is_free ? 'Free' : c.level}</span>
+          </div>
+          {/* Live indicator */}
+          {activeRoom && (
+            <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-red-500/90 text-white px-2 py-1 rounded-full">
+              <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"/>
+              <span className="font-mono text-xs font-bold">LIVE</span>
             </div>
           )}
         </div>
-      </div>
-    </Link>
+        <div className="p-5 flex flex-col flex-1">
+          <p className="font-mono text-xs text-violet-400 mb-1">{c.category}</p>
+          <h3 className="font-display text-base font-semibold text-violet-900 mb-2 leading-snug">{c.title}</h3>
+          {c.short_desc && <p className="font-sans text-xs text-muted leading-relaxed flex-1">{c.short_desc}</p>}
+          <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border">
+            <Clock size={12} className="text-muted" />
+            <span className="font-mono text-xs text-muted">{c.duration_hours}h</span>
+            {typeof progress === 'number' && (
+              <div className="ml-auto flex items-center gap-2 flex-1">
+                <div className="flex-1 h-1.5 bg-violet-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-violet-600 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                </div>
+                <span className="font-mono text-xs text-violet-600">{progress}%</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </Link>
+      {/* Group chat button — shown below the card when a live room exists */}
+      {activeRoom && (
+        <Link
+          href={`/classroom/${activeRoom.id}`}
+          className="flex items-center gap-2 px-5 py-3 border-t border-red-100 bg-red-50 hover:bg-red-100 transition-colors rounded-b-lg"
+        >
+          <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0"/>
+          <span className="font-sans text-xs font-semibold text-red-700 flex-1">Join live class chat</span>
+          <Users size={13} className="text-red-400 flex-shrink-0"/>
+        </Link>
+      )}
+    </div>
   )
 }
