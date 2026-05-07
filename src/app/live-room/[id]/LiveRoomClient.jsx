@@ -21,25 +21,26 @@ Your role:
 ${room.courses ? `\nCourse context: "${room.courses.title}" (${room.courses.category})` : ''}
 Keep responses under ${isPrivate ? '200' : '150'} words unless the question genuinely requires more.`
 
-export default function LiveRoomClient({ room, profile, initialMessages }) {
-  const supabase   = createClient()
-  const isPrivate  = room.room_type === 'private'
+export default function LiveRoomClient({ room: initialRoom, profile, initialMessages }) {
+  const supabase     = createClient()
+  const [room, setRoom] = useState(initialRoom)
+  const isPrivate    = room.room_type === 'private'
   const isInstructor = profile?.role === 'instructor'
 
-  const [messages, setMessages] = useState(initialMessages)
-  const [input, setInput]       = useState('')
-  const [sending, setSending]   = useState(false)
-  const [aiTyping, setAiTyping] = useState(false)
-  const [aiEnabled, setAiEnabled] = useState(room.ai_enabled !== false) // default on
+  const [messages,    setMessages]    = useState(initialMessages)
+  const [input,       setInput]       = useState('')
+  const [sending,     setSending]     = useState(false)
+  const [aiTyping,    setAiTyping]    = useState(false)
+  const [aiEnabled,   setAiEnabled]   = useState(initialRoom.ai_enabled !== false)
+  const [justAccepted, setJustAccepted] = useState(false)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
 
-  // Persist AI toggle to DB
   const toggleAI = async () => {
     const newVal = !aiEnabled
     setAiEnabled(newVal)
     await supabase.from('live_rooms').update({ ai_enabled: newVal }).eq('id', room.id)
-    toast.success(newVal ? 'AI responses enabled' : 'AI responses paused')
+    toast.success(newVal ? 'AI enabled — type @ai to summon it' : 'AI paused')
   }
 
   // Auto-scroll
@@ -47,7 +48,7 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, aiTyping])
 
-  // Realtime subscription
+  // Realtime: new messages
   useEffect(() => {
     const channel = supabase
       .channel(`room:${room.id}`)
@@ -64,6 +65,28 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [room.id])
+
+  // Realtime: room status changes — student gets notified when instructor accepts
+  useEffect(() => {
+    const channel = supabase
+      .channel(`room-status:${room.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public',
+        table: 'live_rooms',
+        filter: `id=eq.${room.id}`,
+      }, (payload) => {
+        const updated = payload.new
+        setRoom(r => ({ ...r, ...updated }))
+        if (updated.ai_enabled !== undefined) setAiEnabled(updated.ai_enabled !== false)
+        // Student sees instant notification when instructor accepts
+        if (!isInstructor && updated.status === 'active' && updated.is_active) {
+          setJustAccepted(true)
+          toast.success('🎉 Your instructor has joined!', { duration: 5000 })
+        }
+      })
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [room.id, isInstructor])
 
   const sendMessage = async () => {
     const text = input.trim()
@@ -82,11 +105,15 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
       })
       if (error) throw error
 
-      // AI responds only when enabled, and only to student messages
-      const shouldAIRespond = aiEnabled && !isInstructor
-      if (shouldAIRespond) {
+      // AI responds only when:
+      // 1. AI is enabled globally, AND
+      // 2. Message contains @ai (either party can summon it)
+      const mentionsAI = /^@ai\b/i.test(text) || /\s@ai\b/i.test(text)
+      if (aiEnabled && mentionsAI) {
         setAiTyping(true)
-        await getAIResponse(text)
+        // Strip the @ai prefix before sending to the model
+        const cleanMessage = text.replace(/@ai\s*/i, '').trim() || text
+        await getAIResponse(cleanMessage)
       }
     } catch (err) {
       toast.error('Failed to send message')
@@ -217,15 +244,30 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
             : 'bg-violet-50 text-violet-600 border-violet-100'
       )}>
         <Circle size={8} className={isPrivate ? 'fill-violet-600 text-violet-600' : isInstructor ? 'fill-solar-500 text-solar-500' : 'fill-violet-500 text-violet-500'} />
-        {isPrivate
-          ? isInstructor
-            ? `Private 1-on-1 · ${aiEnabled ? 'AI is on' : 'AI is off'}`
-            : `Private session with your instructor · ${aiEnabled ? 'AI responds to your questions' : 'AI is paused'}`
-          : isInstructor
-            ? `Group room · You are the Lead Instructor`
-            : `Group classroom · ${aiEnabled ? 'AI responds to your questions' : 'AI is paused — ask your instructor directly'}`
+        {aiEnabled
+          ? 'Type @ai at the start of any message to get an AI response'
+          : 'AI is paused — toggle it on to use @ai'
         }
       </div>
+
+      {/* ── Session accepted banner (student only) ── */}
+      {justAccepted && !isInstructor && (
+        <div className="flex-shrink-0 bg-green-50 border-b border-green-200 px-5 py-3 flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"/>
+          <p className="font-sans text-sm text-green-800 font-medium flex-1">Your instructor has joined the session!</p>
+          <button onClick={() => setJustAccepted(false)} className="text-green-400 hover:text-green-700">
+            <X size={14}/>
+          </button>
+        </div>
+      )}
+
+      {/* ── Pending banner (student waiting for acceptance) ── */}
+      {!isInstructor && room.status === 'pending' && (
+        <div className="flex-shrink-0 bg-solar-50 border-b border-solar-200 px-5 py-3 flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-solar-500 animate-pulse flex-shrink-0"/>
+          <p className="font-sans text-sm text-solar-800">Waiting for your instructor to accept the session request…</p>
+        </div>
+      )}
 
       {/* ── Messages ── */}
       <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
@@ -286,13 +328,11 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                isPrivate
-                  ? isInstructor
-                    ? `Message ${otherName}…`
-                    : `Ask your instructor a question…`
-                  : isInstructor
-                    ? `Share your expertise with the class…`
-                    : `Ask a question — AI responds instantly…`
+                aiEnabled
+                  ? `Message… (type @ai to ask the AI)`
+                  : isPrivate
+                    ? isInstructor ? `Message ${otherName}…` : `Ask your instructor…`
+                    : isInstructor ? `Share with the class…` : `Ask a question…`
               }
               className="w-full px-4 py-3 rounded-xl border border-border bg-surface text-ink text-sm font-sans
                          placeholder:text-violet-300 focus:outline-none focus:border-violet-500 focus:ring-2
@@ -313,7 +353,7 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
           </button>
         </div>
         <p className="font-mono text-xs text-violet-300 text-center mt-2">
-          Enter to send · Shift+Enter for new line
+          Enter to send · Shift+Enter for new line{aiEnabled ? ' · @ai to ask the AI' : ''}
         </p>
       </div>
     </div>

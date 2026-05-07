@@ -101,10 +101,12 @@ export default function ClassroomClient({ room, profile, membership, isStaff, in
         }).catch(() => {}) // fire and forget
       }
 
-      // ── AI response for student messages (only when enabled) ──
-      if (!isStaff && aiEnabled) {
+      // ── AI responds only when @ai is mentioned and AI is enabled ──
+      const mentionsAI = /^@ai\b/i.test(text) || /\s@ai\b/i.test(text)
+      if (aiEnabled && mentionsAI) {
         setAiTyping(true)
-        await getAIResponse(text)
+        const cleanMessage = text.replace(/@ai\s*/i, '').trim() || text
+        await getAIResponse(cleanMessage)
       }
     } catch (err) {
       toast.error('Failed to send')
@@ -278,8 +280,8 @@ export default function ClassroomClient({ room, profile, membership, isStaff, in
               onKeyDown={handleKeyDown}
               placeholder={
                 isStaff
-                  ? 'Add context or answer as instructor…'
-                  : `Ask as ${myDisplayName}…`
+                  ? aiEnabled ? 'Add context… (type @ai to ask the AI)' : 'Add context or answer as instructor…'
+                  : aiEnabled ? `Ask as ${myDisplayName}… (type @ai for AI help)` : `Ask as ${myDisplayName}…`
               }
               className="w-full px-4 py-3 rounded-xl border border-border bg-surface text-ink text-sm font-sans
                          placeholder:text-violet-300 focus:outline-none focus:border-violet-500 focus:ring-2

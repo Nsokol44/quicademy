@@ -6,7 +6,7 @@ import {
   ArrowLeft, Plus, ChevronDown, ChevronUp,
   Video, FileText, HelpCircle, Zap, Globe, Trash2, Edit3,
   Save, Eye, EyeOff, X, Check, BookOpen, AlertCircle,
-  Link as LinkIcon, File, Layers, Upload
+  Link as LinkIcon, File, Layers, Upload, Users
 } from 'lucide-react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
@@ -21,11 +21,12 @@ const CONTENT_TYPES = [
 ]
 const TYPE_MAP = Object.fromEntries(CONTENT_TYPES.map(t => [t.id, t]))
 
-export default function CourseEditorClient({ course: initialCourse, initialSections, initialModules }) {
+export default function CourseEditorClient({ course: initialCourse, initialSections, initialModules, initialEnrollments }) {
   const supabase = createClient()
   const [course,   setCourse]   = useState(initialCourse)
   const [sections, setSections] = useState(initialSections)
   const [modules,  setModules]  = useState(initialModules)
+  const [tab, setTab] = useState('curriculum') // 'curriculum' | 'students'
   const [editingCourse, setEditingCourse] = useState(false)
   const [savingCourse,  setSavingCourse]  = useState(false)
   const [addingSection, setAddingSection] = useState(false)
@@ -251,8 +252,25 @@ export default function CourseEditorClient({ course: initialCourse, initialSecti
           )}
         </div>
 
-        {/* Curriculum */}
-        <div>
+        {/* Tab switcher */}
+        <div className="flex gap-1 border-b border-border">
+          {[['curriculum','Curriculum'],['students',`Students (${initialEnrollments.length})`]].map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`px-5 py-2.5 font-sans text-sm font-medium transition-colors border-b-2 -mb-px ${
+                tab === id ? 'border-violet-600 text-violet-700' : 'border-transparent text-muted hover:text-violet-700'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Students tab ── */}
+        {tab === 'students' && (
+          <StudentsPanel enrollments={initialEnrollments} course={course} />
+        )}
+
+        {/* ── Curriculum tab ── */}
+        {tab === 'curriculum' && (<>
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="font-display text-2xl font-bold text-violet-900">Curriculum</h2>
@@ -330,8 +348,110 @@ export default function CourseEditorClient({ course: initialCourse, initialSecti
               )}
             </div>
           )}
-        </div>
+        </> )}
       </div>
+    </div>
+  )
+}
+
+function StudentsPanel({ enrollments, course }) {
+  const [search, setSearch] = useState('')
+  const filtered = enrollments.filter(e => {
+    const q = search.toLowerCase()
+    return !q
+      || e.profiles?.full_name?.toLowerCase().includes(q)
+      || e.profiles?.email?.toLowerCase().includes(q)
+  })
+
+  const avg = enrollments.length > 0
+    ? Math.round(enrollments.reduce((s, e) => s + (e.progress || 0), 0) / enrollments.length)
+    : 0
+
+  const completed = enrollments.filter(e => e.progress === 100).length
+
+  return (
+    <div className="space-y-5">
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Enrolled', value: enrollments.length },
+          { label: 'Avg. progress', value: `${avg}%` },
+          { label: 'Completed', value: completed },
+        ].map(s => (
+          <div key={s.label} className="card p-5 text-center">
+            <p className="font-display text-3xl font-bold text-violet-900">{s.value}</p>
+            <p className="font-mono text-xs text-muted mt-1">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      {enrollments.length > 5 && (
+        <input className="input" placeholder="Search by name or email…"
+          value={search} onChange={e => setSearch(e.target.value)} />
+      )}
+
+      {/* Table */}
+      {enrollments.length === 0 ? (
+        <div className="card p-14 text-center border-2 border-dashed border-violet-200">
+          <Users size={28} className="text-violet-300 mx-auto mb-3"/>
+          <p className="font-display text-lg font-semibold text-violet-900 mb-1">No students yet</p>
+          <p className="font-sans text-sm text-muted">
+            {course.published ? 'Share the course link to get your first enrollments.' : 'Publish this course so students can enroll.'}
+          </p>
+        </div>
+      ) : (
+        <div className="card overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-violet-50 border-b border-border">
+              <tr>
+                {['Student', 'Email', 'Progress', 'Enrolled'].map(h => (
+                  <th key={h} className="px-5 py-3 text-left font-mono text-xs text-muted uppercase tracking-wider">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filtered.map(e => (
+                <tr key={e.id} className="hover:bg-violet-50/50 transition-colors">
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-violet-200 flex items-center justify-center font-display font-bold text-violet-700 text-sm flex-shrink-0">
+                        {(e.profiles?.full_name || '?')[0].toUpperCase()}
+                      </div>
+                      <span className="font-sans text-sm text-violet-900">{e.profiles?.full_name || '—'}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 font-mono text-xs text-muted">{e.profiles?.email || '—'}</td>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-24 h-2 bg-violet-100 rounded-full overflow-hidden flex-shrink-0">
+                        <div className="h-full bg-violet-600 rounded-full transition-all"
+                          style={{ width: `${e.progress || 0}%` }}/>
+                      </div>
+                      <span className={clsx('font-mono text-xs font-semibold',
+                        e.progress === 100 ? 'text-green-600' : 'text-violet-600'
+                      )}>
+                        {e.progress || 0}%
+                      </span>
+                      {e.progress === 100 && (
+                        <span className="badge-green text-xs flex-shrink-0">Done</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 font-mono text-xs text-muted">
+                    {e.enrolled_at
+                      ? new Date(e.enrolled_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && search && (
+            <p className="font-sans text-sm text-muted text-center py-8">No students match "{search}"</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
