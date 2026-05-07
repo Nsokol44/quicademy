@@ -101,8 +101,8 @@ export default function ClassroomClient({ room, profile, membership, isStaff, in
         }).catch(() => {}) // fire and forget
       }
 
-      // ── AI response for student messages ──
-      if (!isStaff) {
+      // ── AI response for student messages (only when enabled) ──
+      if (!isStaff && aiEnabled) {
         setAiTyping(true)
         await getAIResponse(text)
       }
@@ -183,6 +183,15 @@ export default function ClassroomClient({ room, profile, membership, isStaff, in
           {room.courses && <p className="font-mono text-xs text-violet-400 mt-0.5">{room.courses.title}</p>}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* AI toggle */}
+          <button
+            onClick={toggleAI}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono transition-all flex-shrink-0 ${aiEnabled ? 'bg-solar/20 text-solar-300 border border-solar/30' : 'bg-white/10 text-violet-400 border border-white/10'}`}
+            title={aiEnabled ? 'AI on — click to pause' : 'AI off — click to enable'}
+          >
+            <span style={{fontSize:'10px'}}>⚡</span> AI {aiEnabled ? 'on' : 'off'}
+          </button>
+
           {/* Staff: toggle real vs anon names */}
           {isStaff && (
             <button

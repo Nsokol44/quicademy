@@ -30,8 +30,17 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
   const [input, setInput]       = useState('')
   const [sending, setSending]   = useState(false)
   const [aiTyping, setAiTyping] = useState(false)
+  const [aiEnabled, setAiEnabled] = useState(room.ai_enabled !== false) // default on
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
+
+  // Persist AI toggle to DB
+  const toggleAI = async () => {
+    const newVal = !aiEnabled
+    setAiEnabled(newVal)
+    await supabase.from('live_rooms').update({ ai_enabled: newVal }).eq('id', room.id)
+    toast.success(newVal ? 'AI responses enabled' : 'AI responses paused')
+  }
 
   // Auto-scroll
   useEffect(() => {
@@ -73,9 +82,9 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
       })
       if (error) throw error
 
-      // AI responds to student messages always; in private rooms also responds to instructor questions
-      const shouldAIRespond = !isInstructor || isPrivate
-      if (shouldAIRespond && !isInstructor) {
+      // AI responds only when enabled, and only to student messages
+      const shouldAIRespond = aiEnabled && !isInstructor
+      if (shouldAIRespond) {
         setAiTyping(true)
         await getAIResponse(text)
       }
@@ -175,7 +184,22 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
           )}
         </div>
 
-        {/* Group room: show participant count icon */}
+        {/* AI toggle — visible to both instructor and student */}
+        <button
+          onClick={toggleAI}
+          className={clsx(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono transition-all flex-shrink-0',
+            aiEnabled
+              ? 'bg-solar/20 text-solar-300 border border-solar/30 hover:bg-solar/30'
+              : 'bg-white/10 text-violet-400 border border-white/10 hover:bg-white/20'
+          )}
+          title={aiEnabled ? 'AI responses on — click to pause' : 'AI responses off — click to enable'}
+        >
+          <Zap size={11} className={aiEnabled ? 'text-solar-400' : 'text-violet-500'}/>
+          AI {aiEnabled ? 'on' : 'off'}
+        </button>
+
+        {/* Group room indicator */}
         {!isPrivate && (
           <div className="flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-full flex-shrink-0">
             <Users size={12} className="text-violet-300" />
@@ -195,11 +219,11 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
         <Circle size={8} className={isPrivate ? 'fill-violet-600 text-violet-600' : isInstructor ? 'fill-solar-500 text-solar-500' : 'fill-violet-500 text-violet-500'} />
         {isPrivate
           ? isInstructor
-            ? `Private 1-on-1 session · AI assists with student questions`
-            : `Private session with your instructor · AI responds to your questions`
+            ? `Private 1-on-1 · ${aiEnabled ? 'AI is on' : 'AI is off'}`
+            : `Private session with your instructor · ${aiEnabled ? 'AI responds to your questions' : 'AI is paused'}`
           : isInstructor
             ? `Group room · You are the Lead Instructor`
-            : `Group classroom · AI responds to your questions · Instructor is available`
+            : `Group classroom · ${aiEnabled ? 'AI responds to your questions' : 'AI is paused — ask your instructor directly'}`
         }
       </div>
 

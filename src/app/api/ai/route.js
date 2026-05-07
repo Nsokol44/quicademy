@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 
 const GEMINI_MODELS = {
-  chat:       'gemini-3.1-flash-lite-preview', // Fast, capable — for live room Q&A
-  moderation: 'gemini-3.1-flash-lite-preview', // Same model, different prompt
+  chat:       'gemini-2.5-flash-preview-04-17', // Fast, capable — for live room Q&A
+  moderation: 'gemini-2.5-flash-preview-04-17', // Same model, different prompt
 }
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'

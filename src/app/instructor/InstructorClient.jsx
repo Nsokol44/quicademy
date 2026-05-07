@@ -1,16 +1,17 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { CATEGORIES } from '@/lib/constants'
 import {
   BookOpen, Plus, Video, Users, BarChart2, Edit3, Trash2,
-  Radio, X, ArrowRight, Lock, MessageCircle, Check, Clock, Upload
+  Radio, X, ArrowRight, Lock, MessageCircle, Check, Clock, Upload,
+  File, CheckCircle
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 
-const TABS = ['Overview', 'My Courses', 'Group Rooms', 'Private Sessions', 'Profile']
+const TABS = ['Overview', 'My Courses', 'Submissions', 'Group Rooms', 'Private Sessions', 'Profile']
 
 export default function InstructorClient({ profile, courses, groupRooms, privateRooms }) {
   const [tab, setTab]           = useState('Overview')
@@ -75,6 +76,7 @@ export default function InstructorClient({ profile, courses, groupRooms, private
         {tab === 'My Courses'       && <CoursesTab courses={courses} profile={profile} showForm={showCourseForm} setShowForm={setShowCourseForm} />}
         {tab === 'Group Rooms'      && <GroupRoomsTab rooms={groupRooms} courses={courses} profile={profile} showCreate={showRoomForm} setShowCreate={setShowRoomForm} />}
         {tab === 'Private Sessions' && <PrivateSessionsTab rooms={privateRooms} profile={profile} />}
+        {tab === 'Submissions'      && <SubmissionsTab profile={profile} />}
         {tab === 'Profile'          && <ProfileTab profile={profile} />}
       </div>
     </div>
@@ -632,6 +634,129 @@ function ProfileTab({ profile }) {
           </button>
         </form>
       </div>
+    </div>
+  )
+}
+
+/* ─── SUBMISSIONS TAB ─── */
+function SubmissionsTab({ profile }) {
+  const supabase = createClient()
+  const [submissions, setSubmissions] = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [activeId, setActiveId]       = useState(null)
+  const [feedbackForm, setFeedback]   = useState({ text: '', grade: '' })
+  const [saving, setSaving]           = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase
+        .from('submissions')
+        .select('*, modules(title, content_type), courses(title), profiles:student_id(full_name, email)')
+        .eq('status', 'submitted')
+        .order('submitted_at', { ascending: false })
+      setSubmissions(data || [])
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const giveFeedback = async (subId) => {
+    if (!feedbackForm.text.trim()) return toast.error('Please write feedback before submitting')
+    setSaving(true)
+    try {
+      const { data, error } = await supabase.from('submissions').update({
+        feedback_text:  feedbackForm.text,
+        feedback_grade: feedbackForm.grade || null,
+        feedback_by:    profile.id,
+        feedback_at:    new Date().toISOString(),
+        status:         'returned',
+      }).eq('id', subId).select().single()
+      if (error) throw error
+      setSubmissions(s => s.filter(x => x.id !== subId))
+      setActiveId(null)
+      toast.success('Feedback submitted!')
+    } catch (err) { toast.error(err.message) }
+    finally { setSaving(false) }
+  }
+
+  if (loading) return <div className="flex items-center justify-center py-16"><div className="w-6 h-6 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin"/></div>
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-display text-2xl font-bold text-violet-900">Student Submissions</h2>
+        <p className="font-sans text-sm text-muted mt-1">{submissions.length} awaiting feedback</p>
+      </div>
+
+      {submissions.length === 0 ? (
+        <div className="card p-16 text-center">
+          <CheckCircle size={28} className="text-green-400 mx-auto mb-3"/>
+          <p className="font-display text-lg font-semibold text-violet-900">All caught up!</p>
+          <p className="font-sans text-sm text-muted mt-1">No pending submissions to review.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {submissions.map(sub => (
+            <div key={sub.id} className="card overflow-hidden">
+              <div className="p-5 flex items-start gap-4">
+                <div className="w-10 h-10 rounded-full bg-violet-200 flex items-center justify-center font-display font-bold text-violet-700 flex-shrink-0">
+                  {(sub.profiles?.full_name || '?')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-sans font-semibold text-sm text-violet-900">{sub.profiles?.full_name}</p>
+                  <p className="font-mono text-xs text-muted">{sub.modules?.title} · {sub.courses?.title}</p>
+                  <p className="font-mono text-xs text-violet-400 mt-0.5">
+                    {new Date(sub.submitted_at).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}
+                  </p>
+                </div>
+                <button onClick={() => setActiveId(activeId === sub.id ? null : sub.id)}
+                  className="btn-primary btn-sm flex-shrink-0">
+                  {activeId === sub.id ? 'Close' : 'Review'}
+                </button>
+              </div>
+
+              {activeId === sub.id && (
+                <div className="border-t border-border p-5 space-y-4 bg-violet-50/30">
+                  {/* Student's submission */}
+                  <div>
+                    <p className="field-label mb-2">Student's response</p>
+                    {sub.text_response && (
+                      <div className="bg-white rounded-lg border border-border p-4 max-h-48 overflow-y-auto">
+                        <pre className="font-sans text-sm text-violet-800 whitespace-pre-wrap leading-relaxed">{sub.text_response}</pre>
+                      </div>
+                    )}
+                    {sub.file_url && (
+                      <a href={sub.file_url} target="_blank" rel="noopener noreferrer"
+                        className="mt-2 flex items-center gap-2 p-3 bg-white rounded-lg border border-border text-violet-600 hover:text-violet-800 text-xs font-mono">
+                        <File size={13}/>{sub.file_name || 'Attached file'}
+                      </a>
+                    )}
+                  </div>
+                  {/* Feedback form */}
+                  <div className="space-y-3">
+                    <div>
+                      <label className="field-label">Your feedback *</label>
+                      <textarea className="input resize-none" rows={4}
+                        placeholder="Provide detailed feedback on the student's submission…"
+                        value={feedbackForm.text}
+                        onChange={e => setFeedback(f => ({...f, text: e.target.value}))}/>
+                    </div>
+                    <div>
+                      <label className="field-label">Grade / score (optional)</label>
+                      <input className="input" placeholder="e.g. A, 85/100, Pass, 9/10"
+                        value={feedbackForm.grade}
+                        onChange={e => setFeedback(f => ({...f, grade: e.target.value}))}/>
+                    </div>
+                    <button onClick={() => giveFeedback(sub.id)} disabled={saving} className="btn-primary">
+                      {saving ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Submitting…</> : <>Submit feedback</>}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

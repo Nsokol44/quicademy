@@ -137,7 +137,7 @@ export default function DashboardClient({ profile, enrollments, suggestedCourses
           {enrollments.length > 0 ? (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
               {enrollments.map(({ courses: c, progress }) => (
-                <CourseCard key={c.id} course={c} progress={progress} />
+                <CourseCard key={c.id} course={c} progress={progress} enrolled={true} />
               ))}
             </div>
           ) : (
@@ -292,9 +292,10 @@ function RequestPrivateSession({ profile, instructors }) {
 }
 
 /* ── Course card ── */
-function CourseCard({ course: c, progress }) {
+function CourseCard({ course: c, progress, enrolled }) {
+  const href = enrolled ? `/learn/${c.id}` : `/courses/${c.id}`
   return (
-    <Link href={`/courses/${c.id}`} className="card hover:shadow-card-lg hover:-translate-y-0.5 transition-all flex flex-col">
+    <Link href={href} className="card hover:shadow-card-lg hover:-translate-y-0.5 transition-all flex flex-col">
       <div className="h-36 bg-gradient-to-br from-violet-700 to-violet-900 rounded-t-lg flex items-center justify-center relative overflow-hidden">
         <div className="absolute inset-0 opacity-10"
           style={{ backgroundImage: 'repeating-linear-gradient(45deg,#fff 0,#fff 1px,transparent 1px,transparent 12px)' }} />
