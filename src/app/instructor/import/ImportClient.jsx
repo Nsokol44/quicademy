@@ -24,9 +24,9 @@ function extractFromHtml(html) {
   const titleMatch = html.match(/<title>([^<]+)<\/title>/)
   const title = titleMatch ? titleMatch[1].trim() : 'Untitled'
 
-  // Meta line — e.g. "Lab · 100 pts · Week 2 · Due: End of Week 2"
-  const metaMatch = html.match(/class="meta">([^<]+)/)
-  const meta = metaMatch ? metaMatch[1].trim() : ''
+  // Meta line — e.g. "<strong>Lab</strong> · 100 pts · Week 2 · Due: End of Week 2"
+  const metaMatch = html.match(/class="meta">([\s\S]*?)<\/p>/)
+  const meta = metaMatch ? metaMatch[1].replace(/<[^>]+>/g, '').trim() : ''
 
   // Extract points from meta
   const ptsMatch = meta.match(/(\d+)\s*pts?/i)
@@ -119,15 +119,18 @@ async function parseZip(file) {
     sortOrder = Math.max(sortOrder, weekNum * 10)
   }
 
-  // ── Parse Assignments ─────────────────────────────────────
+  // ── Parse Assignments (deduplicate by title) ─────────────
   const assignmentFiles = files
     .filter(f => f.startsWith('Assignments/') && f.endsWith('.html'))
     .sort()
 
+  const seenAssignments = new Set()
   let assignIdx = 0
   for (const af of assignmentFiles) {
     const html = await zip.files[af].async('text')
     const { title, bodyHtml, points, weekNum } = extractFromHtml(html)
+    if (seenAssignments.has(title)) continue // skip duplicates
+    seenAssignments.add(title)
     assignIdx++
     modules.push({
       folder: 'assignment',
@@ -141,15 +144,18 @@ async function parseZip(file) {
     })
   }
 
-  // ── Parse Discussions ─────────────────────────────────────
+  // ── Parse Discussions (deduplicate by title) ─────────────
   const discussionFiles = files
     .filter(f => f.startsWith('Discussions/') && f.endsWith('.html'))
     .sort()
 
+  const seenDiscussions = new Set()
   let discIdx = 0
   for (const df of discussionFiles) {
     const html = await zip.files[df].async('text')
     const { title, bodyHtml, points, weekNum } = extractFromHtml(html)
+    if (seenDiscussions.has(title)) continue
+    seenDiscussions.add(title)
     discIdx++
     modules.push({
       folder: 'discussion',
