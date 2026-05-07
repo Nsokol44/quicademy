@@ -93,31 +93,28 @@ export default function LiveRoomClient({ room, profile, initialMessages }) {
         `${m.is_ai ? 'AI Assistant' : `${m.sender_name} (${m.sender_role})`}: ${m.content}`
       ).join('\n')
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 500,
-          system: buildSystemPrompt(room, isPrivate),
-          messages: [{
-            role: 'user',
-            content: recentContext
-              ? `Recent conversation:\n${recentContext}\n\nNew question: ${userMessage}`
-              : userMessage,
-          }],
+          type:           'chat',
+          message:        userMessage,
+          context:        recentContext || null,
+          roomType:       room.room_type,
+          isPrivate:      isPrivate,
+          courseTitle:    room.courses?.title,
+          courseCategory: room.courses?.category,
         }),
       })
 
       const data = await response.json()
-      const aiText = data.content?.[0]?.text
-      if (aiText) {
+      if (data.text) {
         await supabase.from('room_messages').insert({
           room_id:     room.id,
           sender_id:   null,
           sender_name: 'Quicademy AI',
           sender_role: 'ai',
-          content:     aiText,
+          content:     data.text,
           is_ai:       true,
         })
       }

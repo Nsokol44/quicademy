@@ -120,29 +120,27 @@ export default function ClassroomClient({ room, profile, membership, isStaff, in
         `${m.is_ai ? 'AI' : m.display_name} (${m.sender_role}): ${m.content}`
       ).join('\n')
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 400,
-          system: AI_SYSTEM(room),
-          messages: [{
-            role: 'user',
-            content: context ? `Context:\n${context}\n\nNew question: ${userMessage}` : userMessage,
-          }],
+          type:           'chat',
+          message:        userMessage,
+          context:        context || null,
+          roomType:       'class',
+          courseTitle:    room.courses?.title,
+          courseCategory: room.courses?.category,
         }),
       })
       const data = await res.json()
-      const aiText = data.content?.[0]?.text
-      if (aiText) {
+      if (data.text) {
         await supabase.from('room_messages').insert({
           room_id:      room.id,
           sender_id:    null,
           sender_name:  'Quicademy AI',
           sender_role:  'ai',
           display_name: 'Quicademy AI',
-          content:      aiText,
+          content:      data.text,
           is_ai:        true,
         })
       }
