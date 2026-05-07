@@ -3,55 +3,45 @@ import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { CATEGORIES } from '@/lib/constants'
 import {
-  ArrowLeft, Plus, GripVertical, ChevronDown, ChevronUp,
+  ArrowLeft, Plus, ChevronDown, ChevronUp,
   Video, FileText, HelpCircle, Zap, Globe, Trash2, Edit3,
-  Save, Eye, EyeOff, Upload, X, Check, BookOpen, AlertCircle,
-  Link as LinkIcon, File
+  Save, Eye, EyeOff, X, Check, BookOpen, AlertCircle,
+  Link as LinkIcon, File, Layers, Upload
 } from 'lucide-react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 
 const CONTENT_TYPES = [
-  { id: 'text',        label: 'Lesson / Reading',    icon: FileText,   desc: 'Written content, notes, or markdown' },
-  { id: 'video',       label: 'Video',               icon: Video,      desc: 'Video URL (YouTube, Vimeo, Loom, etc.)' },
-  { id: 'interactive', label: 'Assignment / Lab',    icon: Zap,        desc: 'Hands-on task or exercise' },
-  { id: 'quiz',        label: 'Quiz',                icon: HelpCircle, desc: 'Knowledge check questions' },
-  { id: 'scenario',    label: 'Case Study',          icon: Globe,      desc: 'Real-world scenario or example' },
+  { id: 'text',        label: 'Lesson',     icon: FileText,   color: 'bg-violet-100 text-violet-600' },
+  { id: 'video',       label: 'Video',      icon: Video,      color: 'bg-blue-100 text-blue-600' },
+  { id: 'interactive', label: 'Assignment', icon: Zap,        color: 'bg-solar-100 text-solar-700' },
+  { id: 'quiz',        label: 'Quiz',       icon: HelpCircle, color: 'bg-green-100 text-green-700' },
+  { id: 'scenario',    label: 'Case Study', icon: Globe,      color: 'bg-pink-100 text-pink-700' },
 ]
+const TYPE_MAP = Object.fromEntries(CONTENT_TYPES.map(t => [t.id, t]))
 
-const TYPE_COLORS = {
-  text:        'bg-violet-100 text-violet-600',
-  video:       'bg-blue-100 text-blue-600',
-  interactive: 'bg-solar-100 text-solar-700',
-  quiz:        'bg-green-100 text-green-700',
-  scenario:    'bg-pink-100 text-pink-700',
-}
-
-const TYPE_ICONS = {
-  text: FileText, video: Video, interactive: Zap, quiz: HelpCircle, scenario: Globe
-}
-
-export default function CourseEditorClient({ course: initialCourse, initialModules }) {
+export default function CourseEditorClient({ course: initialCourse, initialSections, initialModules }) {
   const supabase = createClient()
-  const [course, setCourse]       = useState(initialCourse)
-  const [modules, setModules]     = useState(initialModules)
+  const [course,   setCourse]   = useState(initialCourse)
+  const [sections, setSections] = useState(initialSections)
+  const [modules,  setModules]  = useState(initialModules)
   const [editingCourse, setEditingCourse] = useState(false)
-  const [addingModule, setAddingModule]   = useState(false)
-  const [expandedId, setExpandedId]       = useState(null)
-  const [savingCourse, setSavingCourse]   = useState(false)
-  const [courseForm, setCourseForm]       = useState({
-    title:          course.title || '',
-    short_desc:     course.short_desc || '',
-    description:    course.description || '',
-    category:       course.category || CATEGORIES[0],
-    level:          course.level || 'beginner',
-    duration_hours: course.duration_hours || '',
-    is_free:        course.is_free ?? true,
-    price:          course.price || '0',
+  const [savingCourse,  setSavingCourse]  = useState(false)
+  const [addingSection, setAddingSection] = useState(false)
+  const [expandedSections, setExpandedSections] = useState(
+    Object.fromEntries(initialSections.map(s => [s.id, true]))
+  )
+  const [courseForm, setCF] = useState({
+    title: course.title || '', short_desc: course.short_desc || '',
+    description: course.description || '', category: course.category || CATEGORIES[0],
+    level: course.level || 'beginner', duration_hours: course.duration_hours || '',
+    is_free: course.is_free ?? true, price: course.price || '0',
   })
 
-  // Save course metadata
+  const ungrouped = modules.filter(m => !m.section_id)
+  const modsFor   = (sid) => modules.filter(m => m.section_id === sid).sort((a,b) => a.sort_order - b.sort_order)
+
   const saveCourse = async () => {
     setSavingCourse(true)
     try {
@@ -61,212 +51,199 @@ export default function CourseEditorClient({ course: initialCourse, initialModul
         price: parseFloat(courseForm.price) || 0,
       }).eq('id', course.id).select().single()
       if (error) throw error
-      setCourse(data)
-      setEditingCourse(false)
-      toast.success('Course details saved!')
+      setCourse(data); setEditingCourse(false); toast.success('Course saved!')
     } catch (err) { toast.error(err.message) }
     finally { setSavingCourse(false) }
   }
 
-  // Toggle publish
   const togglePublish = async () => {
-    const newVal = !course.published
-    const { data, error } = await supabase.from('courses').update({ published: newVal }).eq('id', course.id).select().single()
+    const val = !course.published
+    const { data, error } = await supabase.from('courses')
+      .update({ published: val, approved: val })
+      .eq('id', course.id).select().single()
     if (error) return toast.error(error.message)
     setCourse(data)
-    toast.success(newVal ? 'Course submitted for review' : 'Course unpublished')
+    toast.success(val ? 'Course is now live!' : 'Course unpublished')
   }
 
-  // Add new module
-  const handleAddModule = async (mod) => {
-    const sort_order = modules.length
-    const { data, error } = await supabase.from('modules').insert({
-      course_id:    course.id,
-      title:        mod.title,
-      description:  mod.description || null,
-      content_type: mod.content_type,
-      content_body: mod.content_body || null,
-      content_url:  mod.content_url  || null,
-      duration_mins:parseInt(mod.duration_mins) || null,
-      sort_order,
+  const addSection = async (title, overview) => {
+    const { data, error } = await supabase.from('sections').insert({
+      course_id: course.id, title, overview: overview || null, sort_order: sections.length,
     }).select().single()
     if (error) return toast.error(error.message)
+    setSections(s => [...s, data])
+    setExpandedSections(p => ({...p, [data.id]: true}))
+    setAddingSection(false)
+    toast.success('Section added!')
+  }
+
+  const updateSection = async (id, updates) => {
+    const { data, error } = await supabase.from('sections').update(updates).eq('id', id).select().single()
+    if (error) return toast.error(error.message)
+    setSections(s => s.map(x => x.id === id ? data : x))
+    toast.success('Section saved!')
+  }
+
+  const deleteSection = async (id, title) => {
+    if (!confirm(`Delete "${title}"? Modules inside will become ungrouped.`)) return
+    const { error } = await supabase.from('sections').delete().eq('id', id)
+    if (error) return toast.error(error.message)
+    setSections(s => s.filter(x => x.id !== id))
+    setModules(m => m.map(x => x.section_id === id ? {...x, section_id: null} : x))
+    toast.success('Section deleted')
+  }
+
+  const moveSection = async (idx, dir) => {
+    const arr = [...sections]; const swap = idx + dir
+    if (swap < 0 || swap >= arr.length) return
+    ;[arr[idx], arr[swap]] = [arr[swap], arr[idx]]
+    arr.forEach((s, i) => { s.sort_order = i })
+    setSections(arr)
+    await Promise.all(arr.map((s, i) => supabase.from('sections').update({ sort_order: i }).eq('id', s.id)))
+  }
+
+  const addModule = async (sectionId, mod) => {
+    const group = sectionId ? modsFor(sectionId) : ungrouped
+    const { data, error } = await supabase.from('modules').insert({
+      course_id: course.id, section_id: sectionId || null,
+      title: mod.title, description: mod.description || null,
+      content_type: mod.content_type, content_body: mod.content_body || null,
+      content_url: mod.content_url || null,
+      duration_mins: parseInt(mod.duration_mins) || null,
+      sort_order: group.length,
+    }).select().single()
+    if (error) { toast.error(error.message); return }
     setModules(m => [...m, data])
-    setAddingModule(false)
-    setExpandedId(data.id)
     toast.success('Module added!')
   }
 
-  // Update module
-  const handleUpdateModule = async (id, updates) => {
+  const updateModule = async (id, updates) => {
     const { data, error } = await supabase.from('modules').update(updates).eq('id', id).select().single()
-    if (error) return toast.error(error.message)
+    if (error) { toast.error(error.message); return }
     setModules(m => m.map(x => x.id === id ? data : x))
-    toast.success('Module saved!')
+    toast.success('Saved!')
   }
 
-  // Delete module
-  const handleDeleteModule = async (id, title) => {
-    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return
+  const deleteModule = async (id, title) => {
+    if (!confirm(`Delete "${title}"?`)) return
     const { error } = await supabase.from('modules').delete().eq('id', id)
-    if (error) return toast.error(error.message)
+    if (error) { toast.error(error.message); return }
     setModules(m => m.filter(x => x.id !== id))
-    if (expandedId === id) setExpandedId(null)
     toast.success('Module deleted')
   }
 
-  // Move module up/down
-  const moveModule = async (index, direction) => {
-    const newMods = [...modules]
-    const swapIdx = index + direction
-    if (swapIdx < 0 || swapIdx >= newMods.length) return
-    ;[newMods[index], newMods[swapIdx]] = [newMods[swapIdx], newMods[index]]
-    newMods.forEach((m, i) => { m.sort_order = i })
-    setModules(newMods)
-    // Persist new order
-    await Promise.all(newMods.map((m, i) =>
-      supabase.from('modules').update({ sort_order: i }).eq('id', m.id)
-    ))
+  const moveModule = async (modId, sectionId, dir) => {
+    const group = [...(sectionId ? modsFor(sectionId) : ungrouped)]
+    const idx = group.findIndex(m => m.id === modId); const swap = idx + dir
+    if (swap < 0 || swap >= group.length) return
+    ;[group[idx], group[swap]] = [group[swap], group[idx]]
+    group.forEach((m, i) => { m.sort_order = i })
+    setModules(prev => {
+      const updated = [...prev]
+      group.forEach(g => { const i = updated.findIndex(u => u.id === g.id); if (i >= 0) updated[i] = {...updated[i], sort_order: g.sort_order} })
+      return updated
+    })
+    await Promise.all(group.map((m, i) => supabase.from('modules').update({ sort_order: i }).eq('id', m.id)))
   }
 
-  const totalDuration = modules.reduce((sum, m) => sum + (m.duration_mins || 0), 0)
+  const totalMins = modules.reduce((s, m) => s + (m.duration_mins || 0), 0)
 
   return (
     <div className="min-h-screen bg-violet-50">
       {/* Top bar */}
-      <div className="sticky top-16 z-40 bg-white border-b border-border px-5 py-3 flex items-center justify-between shadow-sm">
+      <div className="sticky top-16 z-40 bg-white border-b border-border shadow-sm px-5 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/instructor" className="p-1.5 rounded hover:bg-violet-100 text-violet-600 transition-colors">
-            <ArrowLeft size={18} />
+            <ArrowLeft size={18}/>
           </Link>
-          <div className="min-w-0">
-            <p className="font-sans font-semibold text-sm text-violet-900 truncate max-w-xs">{course.title}</p>
-            <p className="font-mono text-xs text-muted">{modules.length} modules · {totalDuration > 0 ? `${Math.round(totalDuration/60*10)/10}h total` : 'no duration set'}</p>
+          <div>
+            <p className="font-sans font-semibold text-sm text-violet-900 truncate max-w-sm">{course.title}</p>
+            <p className="font-mono text-xs text-muted">
+              {sections.length} section{sections.length !== 1 ? 's' : ''} · {modules.length} module{modules.length !== 1 ? 's' : ''}
+              {totalMins > 0 && ` · ${(totalMins/60).toFixed(1)}h`}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Link href={`/courses/${course.id}`} target="_blank"
-            className="btn-ghost btn-sm text-xs gap-1.5">
-            <Eye size={13} /> Preview
+          <span className={clsx('badge text-xs', course.published ? 'badge-green' : 'badge-violet')}>
+            {course.published ? 'Live' : 'Draft'}
+          </span>
+          <Link href={`/courses/${course.id}`} target="_blank" className="btn-ghost btn-sm text-xs">
+            <Eye size={12}/> Preview
           </Link>
-          <button onClick={togglePublish}
-            className={clsx('btn-sm text-xs gap-1.5 inline-flex items-center',
-              course.published ? 'btn-ghost text-orange-500' : 'btn-primary'
-            )}>
-            {course.published ? <><EyeOff size={13}/> Unpublish</> : <><Globe size={13}/> Submit for review</>}
+          <button onClick={togglePublish} className={clsx('btn-sm text-xs inline-flex items-center gap-1.5',
+            course.published ? 'btn-ghost text-orange-500' : 'btn-primary'
+          )}>
+            {course.published ? <><EyeOff size={12}/>Unpublish</> : <><Globe size={12}/>Publish</>}
           </button>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-5 py-10 space-y-8">
-
-        {/* ── Course details card ── */}
+      <div className="max-w-4xl mx-auto px-5 py-10 space-y-6">
+        {/* Course details */}
         <div className="card overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-violet-50">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-violet-50/80">
             <h2 className="font-display text-lg font-bold text-violet-900">Course Details</h2>
-            <div className="flex items-center gap-2">
-              <span className={clsx('badge text-xs',
-                course.approved && course.published ? 'badge-green' :
-                course.published ? 'badge-solar' : 'badge-violet'
-              )}>
-                {course.approved && course.published ? 'Live' : course.published ? 'Under Review' : 'Draft'}
-              </span>
-              <button onClick={() => setEditingCourse(!editingCourse)} className="btn-ghost btn-sm">
-                {editingCourse ? <><X size={13}/> Cancel</> : <><Edit3 size={13}/> Edit</>}
-              </button>
-            </div>
+            <button onClick={() => setEditingCourse(!editingCourse)} className="btn-ghost btn-sm">
+              {editingCourse ? <><X size={13}/>Cancel</> : <><Edit3 size={13}/>Edit</>}
+            </button>
           </div>
-
           {editingCourse ? (
-            <div className="p-6 space-y-5">
-              <div className="grid md:grid-cols-2 gap-5">
-                <div className="md:col-span-2">
-                  <label className="field-label">Course title *</label>
-                  <input className="input" value={courseForm.title}
-                    onChange={e => setCourseForm(f => ({...f, title: e.target.value}))} />
+            <div className="p-6 space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="md:col-span-2"><label className="field-label">Course title</label>
+                  <input className="input" value={courseForm.title} onChange={e => setCF(f=>({...f,title:e.target.value}))}/>
                 </div>
-                <div>
-                  <label className="field-label">Category</label>
-                  <select className="input" value={courseForm.category}
-                    onChange={e => setCourseForm(f => ({...f, category: e.target.value}))}>
+                <div><label className="field-label">Category</label>
+                  <select className="input" value={courseForm.category} onChange={e => setCF(f=>({...f,category:e.target.value}))}>
                     {CATEGORIES.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="field-label">Level</label>
-                  <select className="input" value={courseForm.level}
-                    onChange={e => setCourseForm(f => ({...f, level: e.target.value}))}>
+                <div><label className="field-label">Level</label>
+                  <select className="input" value={courseForm.level} onChange={e => setCF(f=>({...f,level:e.target.value}))}>
                     <option value="beginner">Beginner</option>
                     <option value="intermediate">Intermediate</option>
                     <option value="advanced">Advanced</option>
                   </select>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="field-label">Short description (shown on course card)</label>
-                  <input className="input" placeholder="One line summary"
-                    value={courseForm.short_desc}
-                    onChange={e => setCourseForm(f => ({...f, short_desc: e.target.value}))} />
+                <div className="md:col-span-2"><label className="field-label">Short description</label>
+                  <input className="input" value={courseForm.short_desc} onChange={e => setCF(f=>({...f,short_desc:e.target.value}))}/>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="field-label">Full description</label>
-                  <textarea className="input resize-none" rows={4}
-                    placeholder="What students will learn, prerequisites, outcomes…"
-                    value={courseForm.description}
-                    onChange={e => setCourseForm(f => ({...f, description: e.target.value}))} />
+                <div className="md:col-span-2"><label className="field-label">Full description</label>
+                  <textarea className="input resize-none" rows={3} value={courseForm.description} onChange={e => setCF(f=>({...f,description:e.target.value}))}/>
                 </div>
-                <div>
-                  <label className="field-label">Duration (hours)</label>
-                  <input type="number" step="0.5" min="0" className="input" placeholder="e.g. 8"
-                    value={courseForm.duration_hours}
-                    onChange={e => setCourseForm(f => ({...f, duration_hours: e.target.value}))} />
+                <div><label className="field-label">Duration (hours)</label>
+                  <input type="number" step="0.5" className="input" value={courseForm.duration_hours} onChange={e => setCF(f=>({...f,duration_hours:e.target.value}))}/>
                 </div>
-                <div>
-                  <label className="field-label">Pricing</label>
+                <div><label className="field-label">Pricing</label>
                   <div className="flex items-center gap-3 h-[46px]">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={courseForm.is_free}
-                        onChange={e => setCourseForm(f => ({...f, is_free: e.target.checked}))}
-                        className="rounded accent-violet-600" />
-                      <span className="font-sans text-sm text-violet-800">Free</span>
+                      <input type="checkbox" checked={courseForm.is_free} onChange={e => setCF(f=>({...f,is_free:e.target.checked}))} className="rounded accent-violet-600"/>
+                      <span className="font-sans text-sm">Free</span>
                     </label>
-                    {!courseForm.is_free && (
-                      <input type="number" step="0.01" min="0" className="input flex-1" placeholder="Price (USD)"
-                        value={courseForm.price}
-                        onChange={e => setCourseForm(f => ({...f, price: e.target.value}))} />
-                    )}
+                    {!courseForm.is_free && <input type="number" className="input flex-1" value={courseForm.price} onChange={e => setCF(f=>({...f,price:e.target.value}))}/>}
                   </div>
                 </div>
               </div>
               <div className="flex gap-3 pt-2 border-t border-border">
                 <button onClick={saveCourse} disabled={savingCourse} className="btn-primary">
-                  {savingCourse
-                    ? <><div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/> Saving…</>
-                    : <><Save size={13}/> Save changes</>
-                  }
+                  {savingCourse ? <><div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Saving…</> : <><Save size={13}/>Save</>}
                 </button>
                 <button onClick={() => setEditingCourse(false)} className="btn-ghost">Cancel</button>
               </div>
             </div>
           ) : (
             <div className="p-6 grid md:grid-cols-3 gap-6">
-              <div className="md:col-span-2 space-y-3">
-                <div>
-                  <p className="field-label mb-1">Description</p>
-                  <p className="font-sans text-sm text-violet-800 leading-relaxed">
-                    {course.description || course.short_desc || <span className="text-muted italic">No description yet</span>}
-                  </p>
-                </div>
+              <div className="md:col-span-2">
+                <p className="font-sans text-sm text-violet-800 leading-relaxed">
+                  {course.description || course.short_desc || <span className="text-muted italic">No description yet</span>}
+                </p>
               </div>
-              <div className="space-y-2.5">
-                {[
-                  { label:'Category', value: course.category },
-                  { label:'Level',    value: { beginner:'Beginner', intermediate:'Intermediate', advanced:'Advanced' }[course.level] },
-                  { label:'Duration', value: course.duration_hours ? `${course.duration_hours}h` : '—' },
-                  { label:'Price',    value: course.is_free ? 'Free' : `$${course.price}` },
-                ].map(r => (
-                  <div key={r.label} className="flex items-center gap-3">
-                    <span className="font-mono text-xs text-muted w-20">{r.label}</span>
-                    <span className="font-sans text-sm text-violet-900">{r.value}</span>
+              <div className="space-y-2">
+                {[['Category',course.category],['Level',{beginner:'Beginner',intermediate:'Intermediate',advanced:'Advanced'}[course.level]],['Duration',course.duration_hours?`${course.duration_hours}h`:'—'],['Price',course.is_free?'Free':`$${course.price}`]].map(([l,v])=>(
+                  <div key={l} className="flex gap-3">
+                    <span className="font-mono text-xs text-muted w-20">{l}</span>
+                    <span className="font-sans text-sm text-violet-900">{v}</span>
                   </div>
                 ))}
               </div>
@@ -274,153 +251,116 @@ export default function CourseEditorClient({ course: initialCourse, initialModul
           )}
         </div>
 
-        {/* ── Curriculum ── */}
+        {/* Curriculum */}
         <div>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-5">
             <div>
-              <h2 className="font-display text-xl font-bold text-violet-900">Curriculum</h2>
+              <h2 className="font-display text-2xl font-bold text-violet-900">Curriculum</h2>
               <p className="font-sans text-sm text-muted mt-0.5">
-                {modules.length} module{modules.length !== 1 ? 's' : ''}
-                {totalDuration > 0 && ` · ${Math.round(totalDuration/60*10)/10}h`}
+                Organize content by week, unit, or topic. Each section has a concept overview followed by lessons, videos, assignments, and quizzes.
               </p>
             </div>
-            <button onClick={() => setAddingModule(true)} className="btn-primary btn-sm">
-              <Plus size={14}/> Add module
+            <button onClick={() => setAddingSection(true)} className="btn-primary">
+              <Plus size={14}/> Add section
             </button>
           </div>
 
-          {/* Add module form */}
-          {addingModule && (
-            <AddModuleForm
-              onSave={handleAddModule}
-              onCancel={() => setAddingModule(false)}
-              profileId={course.instructor_id}
+          {addingSection && (
+            <AddSectionForm
+              onSave={addSection}
+              onCancel={() => setAddingSection(false)}
+              index={sections.length}
             />
           )}
 
-          {/* Module list */}
-          {modules.length === 0 && !addingModule ? (
-            <div className="card p-14 text-center border-dashed border-2 border-violet-200">
-              <BookOpen size={28} className="text-violet-300 mx-auto mb-3" />
-              <p className="font-display text-lg font-semibold text-violet-900 mb-1">No modules yet</p>
-              <p className="font-sans text-sm text-muted mb-5 max-w-xs mx-auto">
-                Add your first module — a lesson, video, assignment, or quiz.
+          {sections.length === 0 && !addingSection ? (
+            <div className="card p-14 text-center border-2 border-dashed border-violet-200">
+              <Layers size={28} className="text-violet-300 mx-auto mb-3"/>
+              <p className="font-display text-lg font-semibold text-violet-900 mb-1">No sections yet</p>
+              <p className="font-sans text-sm text-muted mb-5 max-w-sm mx-auto">
+                Start by adding a section — Week 1, Unit 1, or any topic group. Then add lessons, videos, and assignments inside it.
               </p>
-              <button onClick={() => setAddingModule(true)} className="btn-primary mx-auto">
-                <Plus size={14}/> Add first module
+              <button onClick={() => setAddingSection(true)} className="btn-primary mx-auto">
+                <Plus size={14}/> Add first section
               </button>
             </div>
           ) : (
-            <div className="space-y-2">
-              {modules.map((mod, index) => (
-                <ModuleRow
-                  key={mod.id}
-                  mod={mod}
-                  index={index}
-                  total={modules.length}
-                  expanded={expandedId === mod.id}
-                  onToggle={() => setExpandedId(expandedId === mod.id ? null : mod.id)}
-                  onUpdate={(updates) => handleUpdateModule(mod.id, updates)}
-                  onDelete={() => handleDeleteModule(mod.id, mod.title)}
-                  onMove={(dir) => moveModule(index, dir)}
+            <div className="space-y-4">
+              {sections.map((section, idx) => (
+                <SectionBlock
+                  key={section.id}
+                  section={section}
+                  index={idx}
+                  total={sections.length}
+                  modules={modsFor(section.id)}
+                  expanded={!!expandedSections[section.id]}
+                  onToggle={() => setExpandedSections(p => ({...p, [section.id]: !p[section.id]}))}
+                  onUpdate={(u) => updateSection(section.id, u)}
+                  onDelete={() => deleteSection(section.id, section.title)}
+                  onMove={(d) => moveSection(idx, d)}
+                  onAddModule={(mod) => addModule(section.id, mod)}
+                  onUpdateModule={updateModule}
+                  onDeleteModule={deleteModule}
+                  onMoveModule={(mid, d) => moveModule(mid, section.id, d)}
                   profileId={course.instructor_id}
                 />
               ))}
+
+              {ungrouped.length > 0 && (
+                <div className="card p-5 border-2 border-dashed border-violet-200">
+                  <p className="font-mono text-xs text-muted uppercase tracking-wider mb-3">Ungrouped modules</p>
+                  <div className="space-y-2">
+                    {ungrouped.map((mod, i) => (
+                      <ModuleRow key={mod.id} mod={mod} index={i} total={ungrouped.length}
+                        onUpdate={(u) => updateModule(mod.id, u)}
+                        onDelete={() => deleteModule(mod.id, mod.title)}
+                        onMove={(d) => moveModule(mod.id, null, d)}
+                        profileId={course.instructor_id}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
-
-        {/* Publish notice */}
-        {!course.published && modules.length > 0 && (
-          <div className="card p-5 border-violet-200 bg-violet-50 flex items-start gap-3">
-            <AlertCircle size={16} className="text-violet-500 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="font-sans font-semibold text-sm text-violet-900">Ready to publish?</p>
-              <p className="font-sans text-xs text-muted mt-0.5">Submit your course for review. Once approved it will be visible to students.</p>
-            </div>
-            <button onClick={togglePublish} className="btn-primary btn-sm flex-shrink-0">
-              <Globe size={13}/> Submit for review
-            </button>
-          </div>
-        )}
       </div>
     </div>
   )
 }
 
-/* ── Add Module Form ── */
-function AddModuleForm({ onSave, onCancel, profileId }) {
-  const [form, setForm] = useState({
-    title:        '',
-    description:  '',
-    content_type: 'text',
-    content_body: '',
-    content_url:  '',
-    duration_mins:'',
-  })
-  const set = (k, v) => setForm(f => ({...f, [k]: v}))
-  const [saving, setSaving] = useState(false)
+function AddSectionForm({ onSave, onCancel, index }) {
+  const [title, setTitle]       = useState(`Week ${index + 1}: `)
+  const [overview, setOverview] = useState('')
+  const [saving, setSaving]     = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!form.title.trim()) return toast.error('Title is required')
-    setSaving(true)
-    await onSave(form)
-    setSaving(false)
+    if (!title.trim()) return toast.error('Title required')
+    setSaving(true); await onSave(title.trim(), overview.trim()); setSaving(false)
   }
 
   return (
-    <div className="card p-6 mb-3 border-violet-300">
-      <div className="flex items-center justify-between mb-5">
-        <h3 className="font-display text-lg font-bold text-violet-900">New Module</h3>
-        <button onClick={onCancel} className="text-muted hover:text-violet-700 transition-colors"><X size={17}/></button>
+    <div className="card p-6 mb-4 border-violet-300 bg-violet-50/50">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-display text-base font-bold text-violet-900">New Section</h3>
+        <button onClick={onCancel}><X size={16} className="text-muted hover:text-violet-700"/></button>
       </div>
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Type selector */}
         <div>
-          <label className="field-label">Content type</label>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-            {CONTENT_TYPES.map(ct => (
-              <button key={ct.id} type="button" onClick={() => set('content_type', ct.id)}
-                className={clsx(
-                  'flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 text-center transition-all',
-                  form.content_type === ct.id
-                    ? 'border-violet-600 bg-violet-700'
-                    : 'border-border bg-white hover:border-violet-300'
-                )}>
-                <ct.icon size={16} className={form.content_type === ct.id ? 'text-solar-400' : 'text-violet-400'} />
-                <span className={clsx('font-sans text-xs font-medium leading-tight', form.content_type === ct.id ? 'text-white' : 'text-violet-800')}>
-                  {ct.label}
-                </span>
-              </button>
-            ))}
-          </div>
+          <label className="field-label">Section title</label>
+          <input className="input" value={title} onChange={e => setTitle(e.target.value)} required autoFocus
+            placeholder="e.g. Week 1: Foundations of GIS"/>
+          <p className="font-mono text-xs text-muted mt-1">Use "Week N:", "Unit N:", or any topic name</p>
         </div>
-
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="md:col-span-2">
-            <label className="field-label">Module title *</label>
-            <input className="input" placeholder="e.g. Week 1: Introduction to GIS"
-              value={form.title} onChange={e => set('title', e.target.value)} required />
-          </div>
-          <div className="md:col-span-2">
-            <label className="field-label">Description (optional)</label>
-            <input className="input" placeholder="Brief overview of what this module covers"
-              value={form.description} onChange={e => set('description', e.target.value)} />
-          </div>
-          <div>
-            <label className="field-label">Duration (minutes)</label>
-            <input type="number" min="0" className="input" placeholder="e.g. 45"
-              value={form.duration_mins} onChange={e => set('duration_mins', e.target.value)} />
-          </div>
+        <div>
+          <label className="field-label">Concept overview / learning objectives (optional)</label>
+          <textarea className="input resize-none" rows={3} value={overview} onChange={e => setOverview(e.target.value)}
+            placeholder="What will students understand by the end of this section? What foundational concepts does this establish?"/>
         </div>
-
-        {/* Content fields based on type */}
-        <ContentFields form={form} set={set} profileId={profileId} />
-
-        <div className="flex gap-3 pt-2">
+        <div className="flex gap-3">
           <button type="submit" disabled={saving} className="btn-primary">
-            {saving ? <><div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Adding…</> : <><Plus size={13}/>Add module</>}
+            {saving ? <><div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Adding…</> : <><Plus size={13}/>Add section</>}
           </button>
           <button type="button" onClick={onCancel} className="btn-ghost">Cancel</button>
         </div>
@@ -429,313 +369,335 @@ function AddModuleForm({ onSave, onCancel, profileId }) {
   )
 }
 
-/* ── Content-type-specific fields ── */
+function SectionBlock({ section, index, total, modules, expanded, onToggle, onUpdate, onDelete, onMove, onAddModule, onUpdateModule, onDeleteModule, onMoveModule, profileId }) {
+  const [editing,      setEditing]      = useState(false)
+  const [addingModule, setAddingModule] = useState(false)
+  const [form, setForm] = useState({ title: section.title, overview: section.overview || '' })
+
+  const handleSave = async () => {
+    if (!form.title.trim()) return toast.error('Title required')
+    await onUpdate({ title: form.title.trim(), overview: form.overview.trim() || null })
+    setEditing(false)
+  }
+
+  return (
+    <div className="card overflow-hidden shadow-card">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 py-4 bg-violet-900 text-white">
+        <div className="flex flex-col gap-0 flex-shrink-0">
+          <button onClick={() => onMove(-1)} disabled={index===0} className="p-0.5 text-violet-400 hover:text-white disabled:opacity-20"><ChevronUp size={13}/></button>
+          <button onClick={() => onMove(1)} disabled={index===total-1} className="p-0.5 text-violet-400 hover:text-white disabled:opacity-20"><ChevronDown size={13}/></button>
+        </div>
+
+        {editing ? (
+          <div className="flex-1 flex items-center gap-2">
+            <input className="flex-1 bg-white/10 border border-white/20 rounded px-3 py-1.5 text-white text-sm font-sans focus:outline-none focus:border-solar-400"
+              value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))} autoFocus/>
+            <button onClick={handleSave} className="p-1.5 rounded bg-solar text-violet-900 hover:bg-solar-500"><Check size={14}/></button>
+            <button onClick={() => setEditing(false)} className="p-1.5 rounded hover:bg-white/10 text-white/70"><X size={14}/></button>
+          </div>
+        ) : (
+          <div className="flex-1 min-w-0 cursor-pointer" onClick={onToggle}>
+            <div className="flex items-center gap-3">
+              <p className="font-display font-bold text-white text-base truncate">{section.title}</p>
+              <span className="font-mono text-xs text-violet-400 flex-shrink-0">{modules.length} item{modules.length!==1?'s':''}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {!editing && <button onClick={() => setEditing(true)} className="p-1.5 rounded text-violet-300 hover:text-white hover:bg-white/10"><Edit3 size={13}/></button>}
+          <button onClick={onDelete} className="p-1.5 rounded text-violet-400 hover:text-red-400 hover:bg-red-400/10"><Trash2 size={13}/></button>
+          <button onClick={onToggle} className="p-1.5 rounded text-violet-300 hover:text-white hover:bg-white/10">
+            {expanded ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="divide-y divide-border">
+          {/* Concept overview */}
+          {(section.overview || editing) && (
+            <div className="px-5 py-4 bg-amber-50/80 border-b border-amber-100">
+              {editing ? (
+                <div>
+                  <label className="field-label text-amber-700">Concept overview</label>
+                  <textarea className="input resize-none text-sm" rows={3} value={form.overview}
+                    onChange={e => setForm(f=>({...f,overview:e.target.value}))}
+                    placeholder="Learning objectives or conceptual overview…"/>
+                </div>
+              ) : (
+                <>
+                  <p className="font-mono text-xs text-amber-600 uppercase tracking-wider mb-2">Concept Overview</p>
+                  <p className="font-sans text-sm text-amber-900 leading-relaxed">{section.overview}</p>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Modules */}
+          {modules.length > 0 && (
+            <div className="divide-y divide-border/60">
+              {modules.map((mod, i) => (
+                <ModuleRow key={mod.id} mod={mod} index={i} total={modules.length}
+                  onUpdate={(u) => onUpdateModule(mod.id, u)}
+                  onDelete={() => onDeleteModule(mod.id, mod.title)}
+                  onMove={(d) => onMoveModule(mod.id, d)}
+                  profileId={profileId}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Add module inline form */}
+          {addingModule && (
+            <div className="px-5 py-5 bg-violet-50/50">
+              <AddModuleForm
+                onSave={async (mod) => { await onAddModule(mod); setAddingModule(false) }}
+                onCancel={() => setAddingModule(false)}
+                profileId={profileId}
+              />
+            </div>
+          )}
+
+          {/* Add button */}
+          {!addingModule && (
+            <div className="px-5 py-3 bg-violet-50/30 flex items-center gap-4">
+              <button onClick={() => setAddingModule(true)}
+                className="flex items-center gap-1.5 text-xs font-mono text-violet-500 hover:text-violet-700 transition-colors">
+                <Plus size={12}/> Add content to this section
+              </button>
+              {!section.overview && !editing && (
+                <button onClick={() => setEditing(true)}
+                  className="flex items-center gap-1.5 text-xs font-mono text-amber-500 hover:text-amber-700 transition-colors">
+                  <Edit3 size={12}/> Add concept overview
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ModuleRow({ mod, index, total, onUpdate, onDelete, onMove, profileId }) {
+  const [expanded, setExpanded] = useState(false)
+  const [editing,  setEditing]  = useState(false)
+  const [saving,   setSaving]   = useState(false)
+  const [form, setForm] = useState({
+    title: mod.title, description: mod.description||'',
+    content_type: mod.content_type||'text',
+    content_body: mod.content_body||'', content_url: mod.content_url||'',
+    duration_mins: mod.duration_mins||'',
+  })
+  const set = (k,v) => setForm(f=>({...f,[k]:v}))
+
+  const handleSave = async () => {
+    if (!form.title.trim()) return toast.error('Title required')
+    setSaving(true)
+    await onUpdate({ title:form.title, description:form.description||null,
+      content_type:form.content_type, content_body:form.content_body||null,
+      content_url:form.content_url||null, duration_mins:parseInt(form.duration_mins)||null })
+    setSaving(false); setEditing(false)
+  }
+
+  const type = TYPE_MAP[mod.content_type] || TYPE_MAP.text
+
+  return (
+    <div className="bg-white">
+      <div className="flex items-center gap-3 px-5 py-3 hover:bg-violet-50/40 transition-colors">
+        <div className="flex flex-col flex-shrink-0">
+          <button onClick={() => onMove(-1)} disabled={index===0} className="p-0.5 text-violet-200 hover:text-violet-500 disabled:opacity-20"><ChevronUp size={12}/></button>
+          <button onClick={() => onMove(1)} disabled={index===total-1} className="p-0.5 text-violet-200 hover:text-violet-500 disabled:opacity-20"><ChevronDown size={12}/></button>
+        </div>
+        <div className={clsx('w-6 h-6 rounded flex items-center justify-center flex-shrink-0', type.color)}>
+          <type.icon size={11}/>
+        </div>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+          <p className="font-sans text-sm text-violet-900 truncate">{mod.title}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="font-mono text-xs text-muted">{type.label}</span>
+            {mod.duration_mins && <span className="font-mono text-xs text-muted">· {mod.duration_mins}m</span>}
+            {mod.content_url   && <span className="font-mono text-xs text-violet-400">· URL</span>}
+            {mod.content_body  && <span className="font-mono text-xs text-violet-400">· Content</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button onClick={() => { setEditing(!editing); setExpanded(true) }} className="p-1.5 rounded text-violet-300 hover:text-violet-600 hover:bg-violet-100"><Edit3 size={13}/></button>
+          <button onClick={onDelete} className="p-1.5 rounded text-violet-200 hover:text-red-500 hover:bg-red-50"><Trash2 size={13}/></button>
+          <button onClick={() => setExpanded(!expanded)} className="p-1.5 rounded text-violet-300 hover:text-violet-600">
+            {expanded ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-border/60 bg-violet-50/30 px-5 py-4">
+          {editing ? (
+            <div className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="md:col-span-2"><label className="field-label">Title</label><input className="input" value={form.title} onChange={e => set('title',e.target.value)}/></div>
+                <div><label className="field-label">Type</label>
+                  <select className="input" value={form.content_type} onChange={e => set('content_type',e.target.value)}>
+                    {CONTENT_TYPES.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div><label className="field-label">Duration (mins)</label><input type="number" className="input" value={form.duration_mins} onChange={e => set('duration_mins',e.target.value)}/></div>
+                <div className="md:col-span-2"><label className="field-label">Description</label><input className="input" value={form.description} onChange={e => set('description',e.target.value)}/></div>
+              </div>
+              <ContentFields form={form} set={set} profileId={profileId}/>
+              <div className="flex gap-3">
+                <button onClick={handleSave} disabled={saving} className="btn-primary btn-sm">
+                  {saving?<><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Saving…</>:<><Check size={12}/>Save</>}
+                </button>
+                <button onClick={()=>setEditing(false)} className="btn-ghost btn-sm">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {mod.description && <p className="font-sans text-sm text-muted">{mod.description}</p>}
+              {mod.content_url && (
+                <a href={mod.content_url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2 p-2.5 bg-white rounded-lg border border-border text-violet-600 hover:text-violet-800 text-xs font-mono">
+                  <LinkIcon size={11}/><span className="truncate">{mod.content_url}</span>
+                </a>
+              )}
+              {mod.content_body && (
+                <div className="p-3 bg-white rounded-lg border border-border max-h-40 overflow-y-auto">
+                  <pre className="font-sans text-xs text-violet-800 leading-relaxed whitespace-pre-wrap">
+                    {mod.content_body.replace(/<[^>]+>/g,'').slice(0,500)}{mod.content_body.length>500&&'…'}
+                  </pre>
+                </div>
+              )}
+              {!mod.content_url && !mod.content_body && (
+                <p className="font-sans text-xs text-muted flex items-center gap-1.5"><AlertCircle size={11}/> No content yet — click Edit to add</p>
+              )}
+              <button onClick={()=>setEditing(true)} className="btn-ghost btn-sm text-xs"><Edit3 size={11}/> Edit content</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AddModuleForm({ onSave, onCancel, profileId }) {
+  const [form, setForm] = useState({ title:'', description:'', content_type:'text', content_body:'', content_url:'', duration_mins:'' })
+  const set = (k,v) => setForm(f=>({...f,[k]:v}))
+  const [saving, setSaving] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.title.trim()) return toast.error('Title required')
+    setSaving(true); await onSave(form); setSaving(false)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="field-label">Content type</label>
+        <div className="flex flex-wrap gap-2">
+          {CONTENT_TYPES.map(ct=>(
+            <button key={ct.id} type="button" onClick={()=>set('content_type',ct.id)}
+              className={clsx('flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 text-xs font-semibold transition-all',
+                form.content_type===ct.id?'border-violet-600 bg-violet-700 text-white':'border-border bg-white text-violet-700 hover:border-violet-300'
+              )}>
+              <ct.icon size={12}/>{ct.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="md:col-span-2">
+          <label className="field-label">Title *</label>
+          <input className="input" placeholder="e.g. Lecture Notes — Coordinate Systems" value={form.title} onChange={e=>set('title',e.target.value)} required/>
+        </div>
+        <div><label className="field-label">Duration (mins)</label><input type="number" className="input" placeholder="45" value={form.duration_mins} onChange={e=>set('duration_mins',e.target.value)}/></div>
+        <div><label className="field-label">Description</label><input className="input" placeholder="Brief summary" value={form.description} onChange={e=>set('description',e.target.value)}/></div>
+      </div>
+      <ContentFields form={form} set={set} profileId={profileId}/>
+      <div className="flex gap-3">
+        <button type="submit" disabled={saving} className="btn-primary btn-sm">
+          {saving?<><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Adding…</>:<><Plus size={12}/>Add</>}
+        </button>
+        <button type="button" onClick={onCancel} className="btn-ghost btn-sm">Cancel</button>
+      </div>
+    </form>
+  )
+}
+
 function ContentFields({ form, set, profileId }) {
   const supabase = createClient()
   const fileRef  = useRef(null)
   const [uploading, setUploading] = useState(false)
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return
     setUploading(true)
     try {
-      const ext  = file.name.split('.').pop()
-      const path = `${profileId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+      const path = `${profileId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`
       const { error } = await supabase.storage.from('course-materials').upload(path, file)
       if (error) throw error
       const { data: { publicUrl } } = supabase.storage.from('course-materials').getPublicUrl(path)
-      set('content_url', publicUrl)
-      toast.success(`"${file.name}" uploaded!`)
-    } catch (err) {
-      toast.error(err.message)
-    } finally {
-      setUploading(false)
-    }
+      set('content_url', publicUrl); toast.success(`${file.name} uploaded!`)
+    } catch (err) { toast.error(err.message) }
+    finally { setUploading(false) }
   }
 
-  if (form.content_type === 'video') {
-    return (
-      <div className="space-y-3">
-        <div>
-          <label className="field-label">Video URL</label>
-          <div className="flex items-center gap-2">
-            <LinkIcon size={14} className="text-muted flex-shrink-0" />
-            <input className="input" placeholder="YouTube, Vimeo, Loom, or any video link"
-              value={form.content_url} onChange={e => set('content_url', e.target.value)} />
-          </div>
-          <p className="font-mono text-xs text-muted mt-1">Paste any video URL — YouTube, Vimeo, Loom, Google Drive, etc.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-px bg-border" />
-          <span className="font-mono text-xs text-muted">or upload a file</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-        <div>
-          <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={handleFileUpload} />
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-            className="btn-ghost w-full border border-dashed border-violet-300 text-violet-600 hover:border-violet-500">
-            {uploading
-              ? <><div className="w-4 h-4 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin"/> Uploading…</>
-              : <><Upload size={14}/> Upload video file (mp4, webm, mov)</>
-            }
-          </button>
-          {form.content_url?.startsWith('http') && (
-            <div className="mt-2 flex items-center gap-2 p-2.5 bg-green-50 border border-green-200 rounded-lg">
-              <Check size={12} className="text-green-600 flex-shrink-0"/>
-              <span className="font-mono text-xs text-green-700 truncate">{form.content_url}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  if (form.content_type === 'text' || form.content_type === 'scenario') {
-    return (
-      <div className="space-y-3">
-        <div>
-          <label className="field-label">Content</label>
-          <textarea className="input resize-none font-sans text-sm leading-relaxed" rows={10}
-            placeholder="Write your lesson content here. Supports Markdown:&#10;&#10;# Heading&#10;**Bold** and *italic*&#10;- Bullet points&#10;&#10;Paste directly from Word, Google Docs, or CourseForge."
-            value={form.content_body} onChange={e => set('content_body', e.target.value)} />
-          <p className="font-mono text-xs text-muted mt-1">Supports Markdown. Paste from any source.</p>
-        </div>
-        <div>
-          <label className="field-label">Attach a file (optional)</label>
-          <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,image/*" className="hidden" onChange={handleFileUpload} />
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-            className="btn-ghost w-full border border-dashed border-violet-200 text-violet-500 hover:border-violet-400 text-xs">
-            {uploading
-              ? <><div className="w-3.5 h-3.5 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin"/> Uploading…</>
-              : <><File size={13}/> Attach PDF, Word, PowerPoint, image, or zip</>
-            }
-          </button>
-          {form.content_url && (
-            <div className="mt-2 flex items-center gap-2 p-2.5 bg-green-50 border border-green-200 rounded-lg">
-              <Check size={12} className="text-green-600 flex-shrink-0"/>
-              <a href={form.content_url} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-green-700 truncate hover:underline">
-                {form.content_url.split('/').pop()}
-              </a>
-              <button type="button" onClick={() => set('content_url', '')} className="ml-auto text-muted hover:text-red-500 flex-shrink-0">
-                <X size={11}/>
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  if (form.content_type === 'interactive' || form.content_type === 'quiz') {
-    return (
-      <div className="space-y-3">
-        <div>
-          <label className="field-label">
-            {form.content_type === 'quiz' ? 'Quiz questions' : 'Assignment instructions'}
-          </label>
-          <textarea className="input resize-none font-sans text-sm leading-relaxed" rows={10}
-            placeholder={form.content_type === 'quiz'
-              ? "Write your quiz questions:\n\n1. What is a GIS?\na) Geographic Information System\nb) General Information Software\nc) Geospatial Index System\n\nAnswer: a\n\n2. Next question..."
-              : "Describe the assignment in detail:\n\n## Objectives\n- Objective 1\n- Objective 2\n\n## Instructions\nStep 1...\n\n## Submission\nSubmit via..."
-            }
-            value={form.content_body} onChange={e => set('content_body', e.target.value)} />
-        </div>
-        <div>
-          <label className="field-label">Attach supporting file (optional)</label>
-          <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,image/*" className="hidden" onChange={handleFileUpload} />
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-            className="btn-ghost w-full border border-dashed border-violet-200 text-violet-500 hover:border-violet-400 text-xs">
-            {uploading
-              ? <><div className="w-3.5 h-3.5 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin"/> Uploading…</>
-              : <><File size={13}/> Attach dataset, rubric, or reference file</>
-            }
-          </button>
-          {form.content_url && (
-            <div className="mt-2 flex items-center gap-2 p-2.5 bg-violet-50 border border-violet-200 rounded-lg">
-              <LinkIcon size={11} className="text-violet-400 flex-shrink-0"/>
-              <a href={form.content_url} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-violet-600 truncate hover:underline">
-                {form.content_url}
-              </a>
-              <button type="button" onClick={() => set('content_url', '')} className="ml-auto text-muted hover:text-red-500">
-                <X size={11}/>
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  return null
-}
-
-/* ── Module Row ── */
-function ModuleRow({ mod, index, total, expanded, onToggle, onUpdate, onDelete, onMove, profileId }) {
-  const [editing, setEditing]   = useState(false)
-  const [saving,  setSaving]    = useState(false)
-  const [form, setForm]         = useState({
-    title:        mod.title,
-    description:  mod.description || '',
-    content_type: mod.content_type || 'text',
-    content_body: mod.content_body || '',
-    content_url:  mod.content_url  || '',
-    duration_mins:mod.duration_mins || '',
-  })
-  const set = (k, v) => setForm(f => ({...f, [k]: v}))
-
-  const handleSave = async () => {
-    if (!form.title.trim()) return toast.error('Title is required')
-    setSaving(true)
-    await onUpdate({
-      title:        form.title,
-      description:  form.description || null,
-      content_type: form.content_type,
-      content_body: form.content_body || null,
-      content_url:  form.content_url  || null,
-      duration_mins:parseInt(form.duration_mins) || null,
-    })
-    setSaving(false)
-    setEditing(false)
-  }
-
-  const Icon = TYPE_ICONS[mod.content_type] || FileText
-  const colorCls = TYPE_COLORS[mod.content_type] || TYPE_COLORS.text
-
-  return (
-    <div className={clsx('card overflow-hidden transition-all', expanded && 'ring-2 ring-violet-300')}>
-      {/* Row header */}
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        {/* Drag handle / order */}
-        <div className="flex flex-col gap-0.5 flex-shrink-0">
-          <button onClick={() => onMove(-1)} disabled={index === 0}
-            className="p-0.5 rounded text-violet-200 hover:text-violet-600 disabled:opacity-20 transition-colors">
-            <ChevronUp size={13}/>
-          </button>
-          <button onClick={() => onMove(1)} disabled={index === total - 1}
-            className="p-0.5 rounded text-violet-200 hover:text-violet-600 disabled:opacity-20 transition-colors">
-            <ChevronDown size={13}/>
-          </button>
-        </div>
-
-        <span className="font-mono text-xs text-muted w-6 flex-shrink-0 text-center">
-          {String(index + 1).padStart(2, '0')}
-        </span>
-
-        {/* Type badge */}
-        <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0', colorCls)}>
-          <Icon size={13} />
-        </div>
-
-        {/* Title */}
-        <div className="flex-1 min-w-0" onClick={onToggle} style={{cursor:'pointer'}}>
-          <p className="font-sans text-sm font-semibold text-violet-900 truncate">{mod.title}</p>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="font-mono text-xs text-muted">
-              {CONTENT_TYPES.find(t => t.id === mod.content_type)?.label || mod.content_type}
-            </span>
-            {mod.duration_mins && (
-              <span className="font-mono text-xs text-muted">· {mod.duration_mins}m</span>
-            )}
-            {mod.content_url && (
-              <span className="font-mono text-xs text-violet-400 flex items-center gap-0.5">
-                <LinkIcon size={9}/> URL
-              </span>
-            )}
-            {mod.content_body && (
-              <span className="font-mono text-xs text-violet-400 flex items-center gap-0.5">
-                <FileText size={9}/> Content
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button onClick={() => { setEditing(!editing); if (!expanded) onToggle() }}
-            className="p-1.5 rounded hover:bg-violet-100 text-violet-400 hover:text-violet-700 transition-colors">
-            <Edit3 size={14}/>
-          </button>
-          <button onClick={onDelete}
-            className="p-1.5 rounded hover:bg-red-50 text-violet-200 hover:text-red-500 transition-colors">
-            <Trash2 size={14}/>
-          </button>
-          <button onClick={onToggle}
-            className="p-1.5 rounded hover:bg-violet-100 text-violet-400 transition-colors">
-            {expanded ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
-          </button>
-        </div>
-      </div>
-
-      {/* Expanded content */}
-      {expanded && (
-        <div className="border-t border-border bg-violet-50/50 p-5">
-          {editing ? (
-            <div className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="field-label">Title</label>
-                  <input className="input" value={form.title} onChange={e => set('title', e.target.value)} />
-                </div>
-                <div>
-                  <label className="field-label">Type</label>
-                  <select className="input" value={form.content_type} onChange={e => set('content_type', e.target.value)}>
-                    {CONTENT_TYPES.map(ct => <option key={ct.id} value={ct.id}>{ct.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="field-label">Duration (minutes)</label>
-                  <input type="number" min="0" className="input" placeholder="e.g. 45"
-                    value={form.duration_mins} onChange={e => set('duration_mins', e.target.value)} />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="field-label">Description</label>
-                  <input className="input" value={form.description} onChange={e => set('description', e.target.value)} />
-                </div>
-              </div>
-              <ContentFields form={form} set={set} profileId={profileId} />
-              <div className="flex gap-3">
-                <button onClick={handleSave} disabled={saving} className="btn-primary btn-sm">
-                  {saving ? <><div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Saving…</> : <><Check size={13}/>Save</>}
-                </button>
-                <button onClick={() => setEditing(false)} className="btn-ghost btn-sm">Cancel</button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {mod.description && (
-                <p className="font-sans text-sm text-muted leading-relaxed">{mod.description}</p>
-              )}
-              {mod.content_url && (
-                <div className="flex items-center gap-2 p-3 bg-white rounded-lg border border-border">
-                  <LinkIcon size={13} className="text-violet-400 flex-shrink-0"/>
-                  <a href={mod.content_url} target="_blank" rel="noopener noreferrer"
-                    className="font-mono text-xs text-violet-600 hover:text-violet-800 underline truncate">
-                    {mod.content_url}
-                  </a>
-                </div>
-              )}
-              {mod.content_body && (
-                <div className="p-4 bg-white rounded-lg border border-border max-h-48 overflow-y-auto">
-                  <pre className="font-sans text-xs text-violet-800 leading-relaxed whitespace-pre-wrap">
-                    {mod.content_body.replace(/<[^>]+>/g, '').slice(0, 800)}
-                    {mod.content_body.length > 800 && '…'}
-                  </pre>
-                </div>
-              )}
-              {!mod.content_url && !mod.content_body && (
-                <div className="flex items-center gap-2 text-muted">
-                  <AlertCircle size={13}/>
-                  <span className="font-sans text-xs">No content added yet. Click Edit to add content.</span>
-                </div>
-              )}
-              <button onClick={() => setEditing(true)} className="btn-ghost btn-sm text-xs">
-                <Edit3 size={12}/> Edit content
-              </button>
-            </div>
-          )}
+  const UploadBtn = ({ accept, label }) => (
+    <>
+      <input ref={fileRef} type="file" accept={accept} className="hidden" onChange={handleUpload}/>
+      <button type="button" onClick={()=>fileRef.current?.click()} disabled={uploading}
+        className="btn-ghost w-full border border-dashed border-violet-200 text-xs">
+        {uploading?<><div className="w-3.5 h-3.5 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin"/>Uploading…</>:<><Upload size={13}/>{label}</>}
+      </button>
+      {form.content_url && (
+        <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+          <Check size={11} className="text-green-600 flex-shrink-0"/>
+          <a href={form.content_url} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-green-700 truncate hover:underline flex-1">
+            {form.content_url.split('/').pop()?.split('?')[0]||'Uploaded file'}
+          </a>
+          <button type="button" onClick={()=>set('content_url','')} className="text-muted hover:text-red-500"><X size={11}/></button>
         </div>
       )}
+    </>
+  )
+
+  if (form.content_type==='video') return (
+    <div className="space-y-3">
+      <div><label className="field-label">Video URL</label>
+        <input className="input" placeholder="YouTube, Vimeo, Loom, Google Drive…" value={form.content_url} onChange={e=>set('content_url',e.target.value)}/>
+        <p className="font-mono text-xs text-muted mt-1">Paste any video link</p>
+      </div>
+      <div className="flex items-center gap-3"><div className="flex-1 h-px bg-border"/><span className="font-mono text-xs text-muted">or upload</span><div className="flex-1 h-px bg-border"/></div>
+      <UploadBtn accept="video/*" label="Upload video file (mp4, webm, mov)"/>
+    </div>
+  )
+
+  if (form.content_type==='text'||form.content_type==='scenario') return (
+    <div className="space-y-3">
+      <div><label className="field-label">Content (Markdown supported)</label>
+        <textarea className="input resize-none font-sans text-sm leading-relaxed" rows={8}
+          placeholder="Write lesson content, paste from Word/Google Docs/CourseForge…"
+          value={form.content_body} onChange={e=>set('content_body',e.target.value)}/>
+      </div>
+      <div><label className="field-label">Attach file (optional)</label>
+        <UploadBtn accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,image/*" label="Attach PDF, Word, PowerPoint, image"/>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-3">
+      <div><label className="field-label">{form.content_type==='quiz'?'Quiz questions':'Assignment instructions'}</label>
+        <textarea className="input resize-none font-sans text-sm leading-relaxed" rows={8}
+          placeholder={form.content_type==='quiz'?"1. Question?\na) Option A\nb) Option B\n\nAnswer: a":"## Objectives\n\n## Instructions\n\n## Submission requirements\n\n## Grading rubric"}
+          value={form.content_body} onChange={e=>set('content_body',e.target.value)}/>
+      </div>
+      <div><label className="field-label">Supporting file (optional)</label>
+        <UploadBtn accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,image/*" label="Attach dataset, rubric, or reference file"/>
+      </div>
     </div>
   )
 }

@@ -13,13 +13,14 @@ export default async function CourseEditorPage({ params }) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const [{ data: course }, { data: modules }] = await Promise.all([
+  const [{ data: course }, { data: sections }, { data: modules }] = await Promise.all([
     supabase.from('courses').select('*').eq('id', params.id).single(),
+    supabase.from('sections').select('*').eq('course_id', params.id).order('sort_order'),
     supabase.from('modules').select('*').eq('course_id', params.id).order('sort_order'),
   ])
 
   if (!course) notFound()
   if (course.instructor_id !== user.id) redirect('/instructor')
 
-  return <CourseEditorClient course={course} initialModules={modules || []} />
+  return <CourseEditorClient course={course} initialSections={sections || []} initialModules={modules || []} />
 }

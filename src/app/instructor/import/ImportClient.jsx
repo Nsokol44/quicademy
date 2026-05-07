@@ -255,6 +255,7 @@ export default function ImportClient({ profileId }) {
     if (!parsed) return
     setLoading(true)
     try {
+      // 1. Create the course
       const { data: course, error: ce } = await supabase.from('courses').insert({
         instructor_id:  profileId,
         title:          parsed.title,
@@ -265,25 +266,51 @@ export default function ImportClient({ profileId }) {
         level:          editLevel,
         duration_hours: parsed.duration_hours,
         tags:           [parsed.course_number, parsed.term].filter(Boolean),
-        is_free:        false,
-        published:      false,
-        approved:       false,
+        is_free:        false, published: false, approved: false,
       }).select().single()
       if (ce) throw ce
 
-      if (parsed.modules?.length > 0) {
-        const { error: me } = await supabase.from('modules').insert(
-          parsed.modules.map((m, i) => ({
-            course_id:    course.id,
-            title:        m.title,
-            description:  m.description || null,
-            content_type: m.content_type,
-            content_body: m.content_body,
-            sort_order:   i,
-            duration_mins: m.folder === 'week' ? 60 : m.folder === 'assignment' ? 120 : 30,
-          }))
-        )
-        if (me) throw me
+      // 2. Create one section per week, with concept overview extracted from HTML
+      const weekModules  = parsed.modules.filter(m => m.folder === 'week')
+      const otherModules = parsed.modules.filter(m => m.folder !== 'week')
+      const sectionMap   = {} // weekNum -> section.id
+
+      for (let i = 0; i < weekModules.length; i++) {
+        const wm = weekModules[i]
+        const weekNum = wm.week_num || (i + 1)
+        const overviewMatch = wm.content_body?.match(/<p[^>]*>([\s\S]*?)<\/p>/i)
+        const overview = overviewMatch
+          ? overviewMatch[1].replace(/<[^>]+>/g,'').trim().slice(0,600) : null
+
+        const { data: section, error: se } = await supabase.from('sections').insert({
+          course_id: course.id, title: wm.title,
+          overview, sort_order: i,
+        }).select().single()
+        if (se) throw se
+        sectionMap[weekNum] = section.id
+
+        // Week lesson as first module in its section
+        await supabase.from('modules').insert({
+          course_id: course.id, section_id: section.id,
+          title: wm.title, content_type: 'text',
+          content_body: wm.content_body, duration_mins: 60, sort_order: 0,
+        })
+      }
+
+      // 3. Insert assignments/discussions/examples into their week's section
+      const sortCounters = {}
+      for (const mod of otherModules) {
+        const sectionId = (mod.week_num && sectionMap[mod.week_num]) || null
+        const key = sectionId || 'ungrouped'
+        sortCounters[key] = (sortCounters[key] || 0) + 1
+
+        await supabase.from('modules').insert({
+          course_id: course.id, section_id: sectionId,
+          title: mod.title, description: mod.description || null,
+          content_type: mod.content_type, content_body: mod.content_body || null,
+          duration_mins: mod.folder === 'assignment' ? 120 : 30,
+          sort_order: sortCounters[key],
+        })
       }
 
       setResult({ courseId: course.id, title: course.title, stats: parsed.stats })
