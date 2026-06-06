@@ -128,6 +128,9 @@ export default function PressClient({ books, authors }) {
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <Link href="/courses" className="btn-solar">Browse our courses</Link>
+            <Link href="/press/submit" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-white/30 text-white hover:bg-white/10 transition-colors font-sans text-sm font-semibold">
+              Submit your book
+            </Link>
             <Link href="/about" className="btn-ghost border-white/20 text-white hover:bg-white/10">About us</Link>
           </div>
         </div>

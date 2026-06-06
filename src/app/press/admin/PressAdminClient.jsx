@@ -3,7 +3,8 @@ import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import {
   Plus, Edit3, Trash2, Eye, EyeOff, Star, Upload,
-  BookOpen, X, Check, ExternalLink, Download, ArrowLeft
+  BookOpen, X, Check, ExternalLink, Download, ArrowLeft,
+  ChevronDown, ChevronUp
 } from 'lucide-react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
@@ -23,16 +24,19 @@ function slugify(str) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 }
 
-export default function PressAdminClient({ books: initial, authors, userId }) {
+export default function PressAdminClient({ books: initial, authors, submissions: initialSubs, userId }) {
   const supabase = createClient()
-  const [books,    setBooks]    = useState(initial)
-  const [editing,  setEditing]  = useState(null) // null | 'new' | book.id
-  const [form,     setForm]     = useState(EMPTY_BOOK)
-  const [saving,   setSaving]   = useState(false)
+  const [books,       setBooks]       = useState(initial)
+  const [submissions, setSubmissions] = useState(initialSubs)
+  const [activeTab,   setActiveTab]   = useState('books') // 'books' | 'submissions'
+  const [editing,     setEditing]     = useState(null)
+  const [form,        setForm]        = useState(EMPTY_BOOK)
+  const [saving,      setSaving]      = useState(false)
   const coverRef = useRef(null)
   const pdfRef   = useRef(null)
   const [uploading, setUploading] = useState({ cover: false, pdf: false })
 
+  const pendingCount = submissions.filter(s => s.status === 'pending').length
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const openNew = () => {
@@ -133,7 +137,7 @@ export default function PressAdminClient({ books: initial, authors, userId }) {
   return (
     <div className="min-h-screen bg-violet-50 py-10 px-5">
       <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div>
             <div className="flex items-center gap-3 mb-1">
               <Link href="/admin" className="text-violet-500 hover:text-violet-700 transition-colors">
@@ -143,12 +147,41 @@ export default function PressAdminClient({ books: initial, authors, userId }) {
             </div>
             <p className="font-sans text-sm text-muted">{books.length} book{books.length !== 1 ? 's' : ''} · <Link href="/press" className="text-violet-600 hover:underline" target="_blank">View public page ↗</Link></p>
           </div>
-          <button onClick={openNew} className="btn-primary">
-            <Plus size={14}/> Add book
+          {activeTab === 'books' && (
+            <button onClick={openNew} className="btn-primary">
+              <Plus size={14}/> Add book
+            </button>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-border mb-8">
+          <button onClick={() => setActiveTab('books')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-sans font-medium transition-colors border-b-2 -mb-px ${activeTab === 'books' ? 'border-violet-600 text-violet-700' : 'border-transparent text-muted hover:text-violet-700'}`}>
+            <BookOpen size={14}/> Books ({books.length})
+          </button>
+          <button onClick={() => setActiveTab('submissions')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-sans font-medium transition-colors border-b-2 -mb-px ${activeTab === 'submissions' ? 'border-violet-600 text-violet-700' : 'border-transparent text-muted hover:text-violet-700'}`}>
+            Submissions ({submissions.length})
+            {pendingCount > 0 && (
+              <span className="w-5 h-5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">
+                {pendingCount}
+              </span>
+            )}
           </button>
         </div>
 
-        {/* Form */}
+        {/* Submissions tab */}
+        {activeTab === 'submissions' && (
+          <SubmissionsPanel
+            submissions={submissions}
+            setSubmissions={setSubmissions}
+            supabase={supabase}
+          />
+        )}
+
+        {/* Books tab */}
+        {activeTab === 'books' && (<>
         {editing && (
           <div className="card p-7 mb-8 border-violet-300">
             <div className="flex items-center justify-between mb-6">
@@ -399,7 +432,224 @@ export default function PressAdminClient({ books: initial, authors, userId }) {
             ))}
           </div>
         )}
+        </>)}
       </div>
+    </div>
+  )
+}
+
+/* ── Submissions Panel ── */
+function SubmissionsPanel({ submissions, setSubmissions, supabase }) {
+  const [expanded,  setExpanded]  = useState(null)
+  const [reviewing, setReviewing] = useState(null) // submission id being acted on
+  const [notes,     setNotes]     = useState('')
+  const [rejection, setRejection] = useState('')
+
+  const updateStatus = async (id, status, extra = {}) => {
+    setReviewing(id)
+    try {
+      const { data, error } = await supabase.from('book_submissions')
+        .update({ status, reviewed_at: new Date().toISOString(), ...extra })
+        .eq('id', id).select().single()
+      if (error) throw error
+      setSubmissions(s => s.map(x => x.id === id ? data : x))
+
+      // Notify author via API
+      const sub = submissions.find(s => s.id === id)
+      if (sub) {
+        await fetch('/api/notify-submission', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type:           'book_decision',
+            status,
+            authorName:     sub.author_name,
+            authorEmail:    sub.author_email,
+            bookTitle:      sub.title,
+            rejectionReason: extra.rejection_reason || null,
+          }),
+        }).catch(() => {})
+      }
+
+      toast.success(status === 'approved' ? 'Submission approved! Author notified.' : status === 'rejected' ? 'Submission rejected. Author notified.' : 'Status updated.')
+      setExpanded(null); setNotes(''); setRejection('')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setReviewing(null)
+    }
+  }
+
+  const STATUS_STYLE = {
+    pending:   'bg-yellow-100 text-yellow-700 border border-yellow-200',
+    reviewing: 'bg-blue-100 text-blue-700 border border-blue-200',
+    approved:  'bg-green-100 text-green-700 border border-green-200',
+    rejected:  'bg-red-100 text-red-700 border border-red-200',
+  }
+
+  if (submissions.length === 0) {
+    return (
+      <div className="card p-16 text-center">
+        <BookOpen size={28} className="text-violet-300 mx-auto mb-3"/>
+        <p className="font-display text-lg font-semibold text-violet-900 mb-1">No submissions yet</p>
+        <p className="font-sans text-sm text-muted">
+          Share <strong className="text-violet-700">quicademy.com/press/submit</strong> to start receiving submissions.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Stats row */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        {['pending','reviewing','approved','rejected'].map(s => (
+          <div key={s} className="card p-4 text-center">
+            <p className="font-display text-2xl font-bold text-violet-900">
+              {submissions.filter(x => x.status === s).length}
+            </p>
+            <p className="font-mono text-xs text-muted mt-0.5 capitalize">{s}</p>
+          </div>
+        ))}
+      </div>
+
+      {submissions.map(sub => (
+        <div key={sub.id} className="card overflow-hidden">
+          {/* Header row */}
+          <div className="flex items-start gap-4 p-5 cursor-pointer hover:bg-violet-50/40 transition-colors"
+            onClick={() => setExpanded(expanded === sub.id ? null : sub.id)}>
+            <div className="w-10 h-10 rounded-full bg-violet-200 flex items-center justify-center font-display font-bold text-violet-700 flex-shrink-0">
+              {sub.author_name[0].toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-display font-bold text-sm text-violet-900">{sub.title}</p>
+                {sub.subtitle && <span className="font-sans text-xs text-muted italic">{sub.subtitle}</span>}
+              </div>
+              <p className="font-sans text-xs text-muted mt-0.5">
+                {sub.author_name} · {sub.author_email}
+                {sub.category && ` · ${sub.category}`}
+              </p>
+              <p className="font-mono text-xs text-violet-400 mt-0.5">
+                {new Date(sub.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className={clsx('badge text-xs capitalize', STATUS_STYLE[sub.status])}>
+                {sub.status}
+              </span>
+              {expanded === sub.id ? <ChevronUp size={14} className="text-muted"/> : <ChevronDown size={14} className="text-muted"/>}
+            </div>
+          </div>
+
+          {/* Expanded detail */}
+          {expanded === sub.id && (
+            <div className="border-t border-border bg-violet-50/30 p-5 space-y-4">
+              {/* Author */}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <p className="field-label mb-1">Author credentials</p>
+                  <p className="font-sans text-sm text-violet-800">{sub.author_credentials || '—'}</p>
+                </div>
+                <div>
+                  <p className="field-label mb-1">Target audience</p>
+                  <p className="font-sans text-sm text-violet-800">{sub.target_audience || '—'}</p>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <p className="field-label mb-1">About the book</p>
+                <div className="bg-white rounded-lg border border-border p-4 max-h-40 overflow-y-auto">
+                  <p className="font-sans text-sm text-violet-800 leading-relaxed whitespace-pre-wrap">{sub.description}</p>
+                </div>
+              </div>
+
+              {/* Author bio */}
+              {sub.author_bio && (
+                <div>
+                  <p className="field-label mb-1">Author bio</p>
+                  <p className="font-sans text-sm text-violet-800 leading-relaxed">{sub.author_bio}</p>
+                </div>
+              )}
+
+              {/* Why Quicademy */}
+              {sub.why_quicademy && (
+                <div>
+                  <p className="field-label mb-1">Why Quicademy Press</p>
+                  <p className="font-sans text-sm text-violet-800 leading-relaxed">{sub.why_quicademy}</p>
+                </div>
+              )}
+
+              {/* Sample chapter */}
+              {sub.sample_url && (
+                <div>
+                  <p className="field-label mb-1">Sample chapter</p>
+                  <a href={sub.sample_url} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-border rounded-lg text-violet-600 hover:text-violet-800 text-sm font-sans transition-colors">
+                    <Download size={14}/> {sub.sample_name || 'Download sample'}
+                  </a>
+                </div>
+              )}
+
+              {/* Decision area — only for pending/reviewing */}
+              {(sub.status === 'pending' || sub.status === 'reviewing') && (
+                <div className="space-y-3 pt-3 border-t border-border">
+                  <div>
+                    <label className="field-label">Internal notes (not sent to author)</label>
+                    <textarea className="input resize-none" rows={2}
+                      placeholder="Your editorial notes…"
+                      value={notes} onChange={e => setNotes(e.target.value)}/>
+                  </div>
+                  <div>
+                    <label className="field-label">Rejection reason (only shown if rejecting)</label>
+                    <textarea className="input resize-none" rows={2}
+                      placeholder="e.g. Outside our current publishing focus, but we encourage you to…"
+                      value={rejection} onChange={e => setRejection(e.target.value)}/>
+                  </div>
+                  <div className="flex gap-3 flex-wrap">
+                    <button
+                      onClick={() => updateStatus(sub.id, 'approved', { reviewer_notes: notes || null })}
+                      disabled={reviewing === sub.id}
+                      className="btn-primary bg-green-600 hover:bg-green-700">
+                      {reviewing === sub.id ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Working…</> : '✓ Approve'}
+                    </button>
+                    <button
+                      onClick={() => updateStatus(sub.id, 'reviewing', { reviewer_notes: notes || null })}
+                      disabled={reviewing === sub.id}
+                      className="btn-outline">
+                      Mark as reviewing
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!rejection.trim()) { toast.error('Please write a rejection reason for the author'); return }
+                        updateStatus(sub.id, 'rejected', { reviewer_notes: notes || null, rejection_reason: rejection })
+                      }}
+                      disabled={reviewing === sub.id}
+                      className="btn-ghost text-red-500 hover:bg-red-50">
+                      ✕ Reject
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Already decided */}
+              {sub.status === 'approved' && (
+                <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <Check size={14} className="text-green-600"/>
+                  <p className="font-sans text-sm text-green-800">Approved on {new Date(sub.reviewed_at).toLocaleDateString()}</p>
+                </div>
+              )}
+              {sub.status === 'rejected' && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="font-sans text-sm text-red-800 font-semibold mb-1">Rejected</p>
+                  {sub.rejection_reason && <p className="font-sans text-sm text-red-700">{sub.rejection_reason}</p>}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
