@@ -9,6 +9,7 @@ import clsx from 'clsx'
 
 const NAV = [
   { href: '/courses', label: 'Courses' },
+  { href: '/press',   label: 'Press' },
   { href: '/classes', label: 'Classes' },
   { href: '/how-it-works', label: 'How It Works' },
   { href: '/for-business', label: 'For Business' },
@@ -108,6 +109,9 @@ export default function Navbar() {
                     )}
                     {profile?.role === 'admin' && (
                       <MenuLink href="/admin" icon={Shield} label="Admin Panel" onClick={() => setDdOpen(false)} />
+                    )}
+                    {profile?.role === 'admin' && (
+                      <MenuLink href="/press/admin" icon={BookOpen} label="Press Admin" onClick={() => setDdOpen(false)} />
                     )}
                     <MenuLink href="/settings"  icon={Settings}         label="Settings"         onClick={() => setDdOpen(false)} />
                     <div className="border-t border-border mt-1 pt-1">
