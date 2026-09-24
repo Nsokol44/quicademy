@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useRouter } from 'next/navigation'
@@ -17,6 +17,50 @@ export default function SettingsPage() {
     company_name: profile?.company_name || '',
   })
   const [pwForm, setPwForm] = useState({ current: '', newPw: '', confirm: '' })
+
+  const [phone, setPhone] = useState(profile?.phone || '')
+  const [phoneSaving, setPhoneSaving] = useState(false)
+  const [enrollments, setEnrollments] = useState(null)
+  const [reminderBusyId, setReminderBusyId] = useState(null)
+
+  useEffect(() => { setPhone(profile?.phone || '') }, [profile?.phone])
+
+  useEffect(() => {
+    if (tab !== 'notifications' || !user || enrollments !== null) return
+    supabase.from('enrollments')
+      .select('id, sms_reminders_enabled, courses(id, title)')
+      .eq('student_id', user.id)
+      .then(({ data, error }) => {
+        if (error) { toast.error(error.message); return }
+        setEnrollments(data || [])
+      })
+  }, [tab, user, enrollments])
+
+  const savePhone = async (e) => {
+    e.preventDefault()
+    setPhoneSaving(true)
+    try {
+      const { error } = await supabase.from('profiles').update({ phone: phone.trim() || null }).eq('id', user.id)
+      if (error) throw error
+      await refreshProfile()
+      toast.success('Phone number saved!')
+    } catch (err) { toast.error(err.message) }
+    finally { setPhoneSaving(false) }
+  }
+
+  const toggleReminder = async (enrollmentId, next) => {
+    if (next && !(profile?.phone || phone.trim())) {
+      toast.error('Add a phone number above first.')
+      return
+    }
+    setReminderBusyId(enrollmentId)
+    try {
+      const { error } = await supabase.from('enrollments').update({ sms_reminders_enabled: next }).eq('id', enrollmentId)
+      if (error) throw error
+      setEnrollments(list => list.map(e => e.id === enrollmentId ? { ...e, sms_reminders_enabled: next } : e))
+    } catch (err) { toast.error(err.message) }
+    finally { setReminderBusyId(null) }
+  }
 
   const saveProfile = async (e) => {
     e.preventDefault()
@@ -50,6 +94,7 @@ export default function SettingsPage() {
   const TABS = [
     { id:'profile', label:'Profile', icon: User },
     { id:'password', label:'Password', icon: Lock },
+    { id:'notifications', label:'Notifications', icon: Bell },
   ]
 
   return (
@@ -105,6 +150,46 @@ export default function SettingsPage() {
                 {loading ? 'Updating…' : 'Update password'}
               </button>
             </form>
+          </div>
+        )}
+
+        {tab === 'notifications' && (
+          <div className="space-y-5">
+            <div className="card p-7">
+              <h2 className="font-display text-lg font-bold text-violet-900 mb-2">Daily text reminders</h2>
+              <p className="font-sans text-xs text-muted mb-5 leading-relaxed">
+                One SMS a day with your next unfinished lesson, its recall prompt, and the first couple of steps —
+                for any course you turn reminders on for below.
+              </p>
+              <form onSubmit={savePhone} className="flex gap-2 mb-1">
+                <input type="tel" className="input flex-1" placeholder="+18655551234"
+                  value={phone} onChange={e => setPhone(e.target.value)} />
+                <button type="submit" disabled={phoneSaving} className="btn-primary flex-shrink-0">
+                  {phoneSaving ? 'Saving…' : 'Save'}
+                </button>
+              </form>
+              <p className="font-mono text-xs text-muted">E.164 format, e.g. +18655551234.</p>
+            </div>
+
+            <div className="card p-7">
+              <h3 className="font-display text-base font-bold text-violet-900 mb-4">Your courses</h3>
+              {enrollments === null && <p className="font-sans text-sm text-muted">Loading…</p>}
+              {enrollments?.length === 0 && <p className="font-sans text-sm text-muted">You're not enrolled in any courses yet.</p>}
+              <div className="space-y-3">
+                {enrollments?.map(e => (
+                  <div key={e.id} className="flex items-center justify-between gap-3 py-2 border-b border-border/60 last:border-0">
+                    <p className="font-sans text-sm text-violet-900 truncate">{e.courses?.title}</p>
+                    <label className="flex items-center gap-2 text-xs font-mono text-muted flex-shrink-0">
+                      <input type="checkbox" checked={e.sms_reminders_enabled}
+                        disabled={reminderBusyId === e.id}
+                        onChange={ev => toggleReminder(e.id, ev.target.checked)}
+                        className="w-4 h-4" />
+                      Daily reminder
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>

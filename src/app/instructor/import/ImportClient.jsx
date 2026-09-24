@@ -342,6 +342,9 @@ export default function ImportClient({ profileId }) {
           <p className="font-sans text-sm text-muted leading-relaxed">
             Upload a .zip export from CourseForge. Weeks, assignments, discussions, and real-world examples are all imported automatically as modules.
           </p>
+          <p className="font-sans text-xs text-muted mt-2">
+            Starting from a plain PDF instead? Try <Link href="/instructor/import/pdf" className="text-violet-600 hover:text-violet-800 underline">Generate course with AI</Link>.
+          </p>
         </div>
 
         {/* Upload */}

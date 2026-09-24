@@ -6,7 +6,7 @@ import { CATEGORIES } from '@/lib/constants'
 import {
   BookOpen, Plus, Video, Users, BarChart2, Edit3, Trash2,
   Radio, X, ArrowRight, Lock, MessageCircle, Check, Clock, Upload,
-  File, CheckCircle
+  File, CheckCircle, Sparkles
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -130,8 +130,9 @@ function OverviewTab({ profile, courses, groupRooms, privateRooms, setTab, onCre
 
       <div>
         <h2 className="font-display text-xl font-semibold text-violet-900 mb-4">Quick Actions</h2>
-        <div className="grid md:grid-cols-3 gap-4">
+        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
           <QuickAction icon={Plus}      title="Create New Course"       desc="Build a new course for your students"         onClick={onCreateCourse} solar />
+          <QuickAction icon={Sparkles}  title="Generate course with AI" desc="Upload a PDF, get a full day-by-day course"    href="/instructor/import/pdf" />
           <QuickAction icon={Upload}    title="Import from CourseForge" desc="Upload a .zip export to create a course"       href="/instructor/import" />
           <QuickAction icon={BarChart2} title="View Analytics"          desc="Engagement and completion data"                href="/instructor/analytics" />
         </div>
