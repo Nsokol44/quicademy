@@ -12,7 +12,7 @@ import clsx from 'clsx'
 
 const EMPTY_BOOK = {
   title: '', subtitle: '', slug: '', short_desc: '', description: '',
-  cover_url: '', pdf_url: '', purchase_url: '',
+  cover_url: '', pdf_url: '', purchase_url: '', ebook_path: '',
   isbn: '', publisher: 'Quicademy Press', publish_date: '',
   pages: '', edition: '1st Edition', language: 'English',
   categories: '', tags: '',
@@ -34,7 +34,8 @@ export default function PressAdminClient({ books: initial, authors, submissions:
   const [saving,      setSaving]      = useState(false)
   const coverRef = useRef(null)
   const pdfRef   = useRef(null)
-  const [uploading, setUploading] = useState({ cover: false, pdf: false })
+  const ebookRef = useRef(null)
+  const [uploading, setUploading] = useState({ cover: false, pdf: false, ebook: false })
 
   const pendingCount = submissions.filter(s => s.status === 'pending').length
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -83,6 +84,24 @@ export default function PressAdminClient({ books: initial, authors, submissions:
     const file = e.target.files?.[0]; if (!file) return
     const url = await uploadFile(file, 'pdfs', 'pdf')
     if (url) { set('pdf_url', url); toast.success('PDF uploaded!') }
+  }
+
+  // eBook files go to the PRIVATE press-ebooks bucket (sold via Stripe).
+  // We store the storage path, not a URL — downloads use signed URLs.
+  const handleEbookUpload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return
+    setUploading(u => ({ ...u, ebook: true }))
+    try {
+      const path = `ebooks/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+      const { error } = await supabase.storage.from('press-ebooks').upload(path, file)
+      if (error) throw error
+      set('ebook_path', path)
+      toast.success('eBook uploaded! It will be delivered after Stripe purchase.')
+    } catch (err) {
+      toast.error(`Upload failed: ${err.message}`)
+    } finally {
+      setUploading(u => ({ ...u, ebook: false }))
+    }
   }
 
   const handleSave = async (e) => {
@@ -263,7 +282,22 @@ export default function PressAdminClient({ books: initial, authors, submissions:
               </div>
 
               {/* Files */}
-              <div className="grid md:grid-cols-3 gap-4">
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="field-label">eBook file (EPUB) — sold via Stripe</label>
+                  <input ref={ebookRef} type="file" accept=".epub,application/epub+zip" className="hidden" onChange={handleEbookUpload}/>
+                  <button type="button" onClick={() => ebookRef.current?.click()} disabled={uploading.ebook}
+                    className="btn-ghost w-full border border-dashed border-violet-200 text-xs">
+                    {uploading.ebook ? <><div className="w-3.5 h-3.5 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin"/>Uploading…</> : <><Upload size={13}/>Upload EPUB</>}
+                  </button>
+                  {form.ebook_path && (
+                    <div className="mt-1 flex items-center gap-1.5 p-2 bg-green-50 border border-green-200 rounded text-xs">
+                      <Check size={10} className="text-green-600"/>
+                      <span className="font-mono text-green-700 truncate flex-1">eBook ready</span>
+                      <button type="button" onClick={() => set('ebook_path', '')}><X size={10} className="text-muted"/></button>
+                    </div>
+                  )}
+                </div>
                 <div>
                   <label className="field-label">PDF file</label>
                   <input ref={pdfRef} type="file" accept="application/pdf" className="hidden" onChange={handlePdfUpload}/>
@@ -408,6 +442,11 @@ export default function PressAdminClient({ books: initial, authors, submissions:
                       title="View PDF">
                       <Download size={13}/>
                     </a>
+                  )}
+                  {book.ebook_path && (
+                    <span className="p-1.5 rounded text-green-500" title="eBook attached — sold via Stripe">
+                      <BookOpen size={13}/>
+                    </span>
                   )}
                   <button onClick={() => toggle(book.id, 'featured')}
                     className={clsx('p-1.5 rounded transition-colors', book.featured ? 'text-solar-500 hover:bg-solar-50' : 'text-violet-200 hover:text-solar-500 hover:bg-solar-50')}

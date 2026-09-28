@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase-server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BookOpen, Download, ExternalLink, ArrowLeft, Calendar, Hash, Globe, Layers } from 'lucide-react'
+import BuyButton from './BuyButton'
 
 export async function generateMetadata({ params }) {
   const supabase = createClient()
@@ -93,13 +94,15 @@ export default async function BookPage({ params }) {
 
             {/* CTA buttons */}
             <div className="flex flex-wrap gap-3 mt-8">
-              {book.purchase_url && (
+              {book.purchase_url ? (
                 <a href={book.purchase_url} target="_blank" rel="noopener noreferrer"
                   className="btn-solar inline-flex items-center gap-2">
                   <ExternalLink size={14}/>
                   {book.is_free ? 'Get this book' : `Buy — ${book.price ? `$${Number(book.price).toFixed(2)}` : 'Get a copy'}`}
                 </a>
-              )}
+              ) : book.price && !book.is_free ? (
+                <BuyButton slug={book.slug} price={book.price} className="btn-solar inline-flex items-center gap-2"/>
+              ) : null}
               {book.pdf_url && (
                 <a href={book.pdf_url} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-white/30 text-white hover:bg-white/10 transition-colors font-sans text-sm font-semibold">
@@ -164,19 +167,21 @@ export default async function BookPage({ params }) {
               ) : null}
             </div>
             <div className="space-y-2">
-              {book.purchase_url && (
+              {book.purchase_url ? (
                 <a href={book.purchase_url} target="_blank" rel="noopener noreferrer"
                   className="btn-primary w-full justify-center">
                   <ExternalLink size={14}/> {book.is_free ? 'Get this book' : 'Buy now'}
                 </a>
-              )}
+              ) : book.price && !book.is_free ? (
+                <BuyButton slug={book.slug} price={book.price} className="btn-primary w-full justify-center"/>
+              ) : null}
               {book.pdf_url && (
                 <a href={book.pdf_url} target="_blank" rel="noopener noreferrer"
                   className="btn-outline w-full justify-center">
                   <Download size={14}/> Download PDF
                 </a>
               )}
-              {!book.purchase_url && !book.pdf_url && (
+              {!book.purchase_url && !book.pdf_url && !(book.price && !book.is_free) && (
                 <p className="font-sans text-xs text-muted text-center">Purchase link coming soon</p>
               )}
             </div>
